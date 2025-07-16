@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>SSH-сервер ИИ центра МФТИ - Tmux</title>
+        <link rel="stylesheet" href="styles.css" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+        />
+    </head>
+    <body>
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="nav-logo">
+                    <h2>SSH-сервер ИИ центра МФТИ</h2>
+                </div>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="index.html" class="nav-link">Главная</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="rules.html" class="nav-link">Правила</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="ssh.html" class="nav-link">SSH</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="python.html" class="nav-link">Python</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="linux.html" class="nav-link">Linux</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="tmux.html" class="nav-link active">Tmux</a>
+                    </li>
+                </ul>
+                <div class="hamburger">
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                </div>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <section class="page-section">
+                <div class="container">
+                    <h1 class="section-title">
+                        Работа с `tmux` - Мультиплексор терминала
+                    </h1>
+                    <p>
+                        <code>tmux</code> (Terminal Multiplexer) — это мощный
+                        инструмент, который позволяет создавать и управлять
+                        несколькими терминальными сессиями в одном окне. Это
+                        особенно полезно при работе на удаленных серверах, так
+                        как позволяет сохранять запущенные процессы даже после
+                        отключения от SSH.
+                    </p>
+
+                    <h2>Основные концепции tmux:</h2>
+                    <ul>
+                        <li>
+                            <strong>Сессия (Session):</strong> Контейнер для
+                            одного или нескольких окон. Вы можете отсоединиться
+                            от сессии и присоединиться к ней позже, даже с
+                            другого компьютера.
+                        </li>
+                        <li>
+                            <strong>Окно (Window):</strong> Виртуальный терминал
+                            внутри сессии, аналогичный вкладкам в браузере.
+                            Каждое окно может содержать несколько панелей.
+                        </li>
+                        <li>
+                            <strong>Панель (Pane):</strong> Разделение окна на
+                            несколько областей, каждая из которых является
+                            отдельным терминалом.
+                        </li>
+                    </ul>
+
+                    <h2>Основные команды tmux:</h2>
+                    <p>
+                        Все команды <code>tmux</code> начинаются с префикса. По
+                        умолчанию это <code>Ctrl+b</code>. После нажатия
+                        префикса, отпустите клавиши и нажмите следующую команду.
+                    </p>
+
+                    <h3>Управление сессиями:</h3>
+                    <div class="code-block">
+                        <pre><code class="language-bash">tmux new -s &lt;session_name&gt;   # Создать новую сессию с именем
+tmux attach -t &lt;session_name&gt; # Присоединиться к существующей сессии
+tmux ls                     # Показать список всех сессий
+tmux kill-session -t &lt;session_name&gt; # Завершить сессию
+Ctrl+b d                    # Отсоединиться от текущей сессии</code></pre>
+                    </div>
+
+                    <h3>Управление окнами:</h3>
+                    <div class="code-block">
+                        <pre><code class="language-bash">Ctrl+b c                    # Создать новое окно
+Ctrl+b n                    # Перейти к следующему окну
+Ctrl+b p                    # Перейти к предыдущему окну
+Ctrl+b &lt;number&gt;             # Перейти к окну по номеру (например, Ctrl+b 0)
+Ctrl+b w                    # Показать список окон
+Ctrl+b &amp;                    # Закрыть текущее окно</code></pre>
+                    </div>
+
+                    <h3>Управление панелями:</h3>
+                    <div class="code-block">
+                        <pre><code class="language-bash">Ctrl+b %                    # Разделить текущую панель вертикально
+Ctrl+b "                    # Разделить текущую панель горизонтально
+Ctrl+b &lt;стрелка&gt;            # Перемещаться между панелями (например, Ctrl+b стрелка влево)
+Ctrl+b z                    # Развернуть/свернуть текущую панель на весь экран
+Ctrl+b x                    # Закрыть текущую панель</code></pre>
+                    </div>
+
+                    <h3>Другие полезные команды:</h3>
+                    <div class="code-block">
+                        <pre><code class="language-bash">Ctrl+b [                    # Режим копирования (для прокрутки и копирования текста)
+    # В режиме копирования:
+    # Прокрутка: стрелки вверх/вниз, PageUp/PageDown
+    # Начать выделение: Space
+    # Завершить выделение и скопировать: Enter
+Ctrl+b ]                    # Вставить скопированный текст
+Ctrl+b t                    # Показать часы</code></pre>
+                    </div>
+
+                    <p>
+                        Использование <code>tmux</code> значительно повышает
+                        продуктивность при работе с удаленными серверами,
+                        позволяя эффективно управлять множеством задач и не
+                        беспокоиться о потере прогресса при разрыве соединения.
+                    </p>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <div class="container">
+                <p>&copy; 2025 SSH-сервер ИИ центра МФТИ.</p>
+            </div>
+        </footer>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+        <script src="script.js"></script>
+    </body>
+</html>

@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Python и Anaconda - SSH-сервер ИИ центра МФТИ</title>
+        <link rel="stylesheet" href="styles.css" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+        />
+    </head>
+    <body>
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="nav-logo">
+                    <h2>SSH-сервер ИИ центра МФТИ</h2>
+                </div>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="index.html" class="nav-link">Главная</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="rules.html" class="nav-link">Правила</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="ssh.html" class="nav-link">SSH</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="python.html" class="nav-link active">Python</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="linux.html" class="nav-link">Linux</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="tmux.html" class="nav-link">Tmux</a>
+                    </li>
+                </ul>
+                <div class="hamburger">
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                </div>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <section class="content-header">
+                <div class="container">
+                    <h1>Работа с Python и Anaconda на сервере</h1>
+                    <p>
+                        Полное руководство по установке и использованию
+                        Python-окружений для эффективной работы
+                    </p>
+                </div>
+            </section>
+
+            <section class="content-page">
+                <div class="content-body">
+                    <p>
+                        На нашем SSH-сервере установлен базовый интерпретатор
+                        Python и пакетный менеджер <code>pip3</code>, которые
+                        являются общими для всех пользователей. Однако для более
+                        удобной и изолированной работы с проектами, требующими
+                        специфических версий Python или библиотек, настоятельно
+                        рекомендуется использовать Anaconda или Miniconda.
+                    </p>
+
+                    <h2>1. Почему Anaconda/Miniconda?</h2>
+
+                    <p>
+                        Anaconda и Miniconda (облегченная версия Anaconda)
+                        предоставляют мощную систему управления пакетами и
+                        окружениями. Это позволяет:
+                    </p>
+
+                    <ul>
+                        <li>
+                            <strong>Изолировать проекты:</strong> Каждый проект
+                            может иметь свое собственное окружение с уникальными
+                            версиями Python и библиотек, что предотвращает
+                            конфликты зависимостей.
+                        </li>
+                        <li>
+                            <strong>Легко управлять пакетами:</strong>
+                            <code>conda</code> (пакетный менеджер Anaconda)
+                            упрощает установку, обновление и удаление пакетов,
+                            включая те, которые имеют сложные зависимости.
+                        </li>
+                        <li>
+                            <strong>Воспроизводимость:</strong> Вы можете легко
+                            поделиться своим окружением с другими, обеспечивая
+                            воспроизводимость результатов.
+                        </li>
+                    </ul>
+
+                    <div
+                        style="
+                            background: #f0fff4;
+                            border-left: 4px solid #38a169;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Рекомендация:</strong> Для большинства задач
+                            машинного обучения и научных вычислений
+                            рекомендуется использовать Miniconda, так как он
+                            занимает меньше места и позволяет устанавливать
+                            только необходимые пакеты.
+                        </p>
+                    </div>
+
+                    <h2>2. Установка Anaconda/Miniconda на сервере</h2>
+
+                    <p>
+                        Поскольку Anaconda и Miniconda устанавливаются локально
+                        для каждого пользователя, вы можете установить их в свою
+                        домашнюю директорию на сервере. Следуйте официальному
+                        руководству по установке для Linux, но помните, что вам
+                        нужно будет скачать установочный файл на сервер.
+                    </p>
+
+                    <h3>Шаг 1: Загрузка установочного файла</h3>
+
+                    <p>
+                        Найдите актуальную ссылку для загрузки Anaconda или
+                        Miniconda для Linux на официальном сайте. Затем
+                        используйте <code>wget</code> или <code>curl</code> для
+                        загрузки файла на сервер:
+                    </p>
+
+                    <pre><code class="language-bash"># Для Anaconda (полная версия)
+wget https://repo.anaconda.com/archive/Anaconda3-2024.02-1-Linux-x86_64.sh
+
+# Для Miniconda (рекомендуется)
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh</code></pre>
+
+                    <div
+                        style="
+                            background: #fff5f5;
+                            border-left: 4px solid #feb2b2;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Важно:</strong> Убедитесь, что вы
+                            используете актуальную ссылку на последнюю версию.
+                            Ссылки могут изменяться со временем.
+                        </p>
+                    </div>
+
+                    <h3>Шаг 2: Запуск установочного скрипта</h3>
+
+                    <p>
+                        После загрузки запустите установочный скрипт. Следуйте
+                        инструкциям на экране. Рекомендуется установить
+                        Anaconda/Miniconda в вашу домашнюю директорию (например,
+                        <code>~/anaconda3</code> или <code>~/miniconda3</code>).
+                    </p>
+
+                    <pre><code class="language-bash"># Для Anaconda
+bash Anaconda3-2024.02-1-Linux-x86_64.sh
+
+# Для Miniconda
+bash Miniconda3-latest-Linux-x86_64.sh</code></pre>
+
+                    <h3>Важные моменты при установке:</h3>
+
+                    <ul>
+                        <li>
+                            Согласитесь с лицензионным соглашением (введите
+                            <code>yes</code>)
+                        </li>
+                        <li>
+                            Выберите путь установки (по умолчанию
+                            <code>~/miniconda3</code> или
+                            <code>~/anaconda3</code>)
+                        </li>
+                        <li>
+                            Согласитесь на инициализацию conda (введите
+                            <code>yes</code>)
+                        </li>
+                    </ul>
+
+                    <h3>Шаг 3: Активация установки</h3>
+
+                    <p>
+                        После завершения установки, вам потребуется
+                        перезапустить терминал или выполнить команду для
+                        применения изменений:
+                    </p>
+
+                    <pre><code class="language-bash"># Применить изменения к текущей сессии
+source ~/.bashrc
+
+# Или для zsh
+source ~/.zshrc</code></pre>
+
+                    <h2>3. Управление окружениями Conda</h2>
+
+                    <p>
+                        После установки Conda вы можете начать создавать и
+                        управлять виртуальными окружениями.
+                    </p>
+
+                    <h3>Создание нового окружения:</h3>
+
+                    <pre><code class="language-bash"># Создать окружение с Python 3.9
+conda create --name myenv python=3.9
+
+# Создать окружение с конкретными пакетами
+conda create --name ml_env python=3.9 numpy pandas matplotlib
+
+# Создать окружение из файла
+conda env create -f environment.yml</code></pre>
+
+                    <h3>Активация и деактивация окружения:</h3>
+
+                    <pre><code class="language-bash"># Активировать окружение
+conda activate myenv
+
+# Деактивировать окружение
+conda deactivate
+
+# Вернуться к базовому окружению
+conda activate base</code></pre>
+
+                    <h3>Управление окружениями:</h3>
+
+                    <pre><code class="language-bash"># Просмотр списка окружений
+conda env list
+# или
+conda info --envs
+
+# Удаление окружения
+conda remove --name myenv --all
+
+# Клонирование окружения
+conda create --name new_env --clone existing_env</code></pre>
+
+                    <h2>4. Управление пакетами с Conda и Pip</h2>
+
+                    <p>
+                        Внутри активированного Conda-окружения вы можете
+                        использовать как <code>conda</code>, так и
+                        <code>pip</code> для установки пакетов.
+                    </p>
+
+                    <h3>Установка пакетов с Conda:</h3>
+
+                    <pre><code class="language-bash"># Установка одного пакета
+conda install numpy
+
+# Установка нескольких пакетов
+conda install numpy pandas matplotlib
+
+# Установка с указанием версии
+conda install python=3.9 numpy=1.21
+
+# Установка из конкретного канала
+conda install -c conda-forge scikit-learn
+
+# Поиск пакетов
+conda search tensorflow</code></pre>
+
+                    <h3>Установка пакетов с Pip (внутри Conda-окружения):</h3>
+
+                    <pre><code class="language-bash"># Установка пакета
+pip install tensorflow
+
+# Установка с указанием версии
+pip install torch==1.12.0
+
+# Установка из requirements.txt
+pip install -r requirements.txt
+
+# Установка в режиме разработки
+pip install -e .</code></pre>
+
+                    <div
+                        style="
+                            background: #f0fff4;
+                            border-left: 4px solid #38a169;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Рекомендация:</strong> Старайтесь
+                            использовать <code>conda install</code> для пакетов,
+                            доступных через Conda, так как
+                            <code>conda</code> лучше управляет зависимостями.
+                            Используйте <code>pip install</code> для пакетов,
+                            которые недоступны в репозиториях Conda.
+                        </p>
+                    </div>
+
+                    <h3>Экспорт и импорт окружений:</h3>
+
+                    <pre><code class="language-bash"># Экспорт окружения в файл
+conda env export > environment.yml
+
+# Экспорт только явно установленных пакетов
+conda env export --from-history > environment.yml
+
+# Создание requirements.txt для pip
+pip freeze > requirements.txt
+
+# Создание окружения из файла
+conda env create -f environment.yml</code></pre>
+
+                    <h2>5. Запуск Jupyter Notebook на сервере</h2>
+
+                    <p>
+                        Jupyter Notebook — отличный инструмент для интерактивной
+                        работы с кодом. Вы можете запустить его на сервере и
+                        получить доступ через ваш локальный браузер.
+                    </p>
+
+                    <h3>Шаг 1: Установка Jupyter (если не установлен):</h3>
+
+                    <pre><code class="language-bash"># Установка через conda
+conda install jupyter
+
+# Или через pip
+pip install jupyter
+
+# Установка JupyterLab (современная версия)
+conda install jupyterlab</code></pre>
+
+                    <h3>Шаг 2: Запуск Jupyter Notebook:</h3>
+
+                    <pre><code class="language-bash"># Запуск Jupyter Notebook
+jupyter notebook --no-browser --port=8888
+
+# Запуск JupyterLab
+jupyter lab --no-browser --port=8888
+
+# Запуск на конкретном IP (для доступа извне)
+jupyter notebook --no-browser --port=8888 --ip=0.0.0.0</code></pre>
+
+                    <p>
+                        Эта команда запустит Jupyter Notebook на порту
+                        <code>8888</code> (вы можете выбрать любой свободный
+                        порт). Она выведет в терминал URL с токеном, который вам
+                        понадобится для доступа.
+                    </p>
+
+                    <h3>Шаг 3: Доступ к Jupyter через SSH-туннель:</h3>
+
+                    <p>
+                        На вашем <strong>локальном компьютере</strong> откройте
+                        новый терминал и создайте SSH-туннель:
+                    </p>
+
+                    <pre><code class="language-bash"># Создание SSH-туннеля
+ssh -N -f -L 8888:localhost:8888 username@proxy2.cod.phystech.edu -p 10096
+
+# Или если у вас настроен SSH config
+ssh -N -f -L 8888:localhost:8888 opt</code></pre>
+
+                    <h3>Параметры SSH-туннеля:</h3>
+
+                    <ul>
+                        <li><code>-N</code>: Не выполнять удаленные команды</li>
+                        <li>
+                            <code>-f</code>: Перейти в фоновый режим после
+                            аутентификации
+                        </li>
+                        <li>
+                            <code>-L 8888:localhost:8888</code>: Перенаправить
+                            локальный порт 8888 на порт 8888 на сервере
+                        </li>
+                    </ul>
+
+                    <p>
+                        Теперь вы можете открыть ваш локальный браузер и перейти
+                        по адресу <code>http://localhost:8888</code>. Введите
+                        токен, который был выведен при запуске Jupyter Notebook
+                        на сервере.
+                    </p>
+
+                    <h3>Настройка Jupyter для удобства:</h3>
+
+                    <pre><code class="language-bash"># Генерация конфигурационного файла
+jupyter notebook --generate-config
+
+# Установка пароля (вместо токена)
+jupyter notebook password</code></pre>
+
+                    <h2>6. Работа с GPU в Python</h2>
+
+                    <p>
+                        При работе с GPU-ускоренными библиотеками важно
+                        правильно настроить окружение:
+                    </p>
+
+                    <h3>Установка CUDA-совместимых пакетов:</h3>
+
+                    <pre><code class="language-bash"># PyTorch с CUDA поддержкой
+conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+
+# TensorFlow с GPU поддержкой
+pip install tensorflow[and-cuda]
+
+# Проверка доступности GPU
+python -c "import torch; print(torch.cuda.is_available())"
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"</code></pre>
+
+                    <h3>Использование GPU в коде:</h3>
+
+                    <pre><code class="language-python"># PyTorch
+import torch
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Using device: {device}')
+
+# TensorFlow
+import tensorflow as tf
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    print(f'GPU available: {len(gpus)} device(s)')
+else:
+    print('No GPU available')</code></pre>
+
+                    <div
+                        style="
+                            background: #fff5f5;
+                            border-left: 4px solid #feb2b2;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Помните:</strong> Всегда используйте
+                            <code>CUDA_VISIBLE_DEVICES</code> для указания
+                            конкретного GPU перед запуском ваших скриптов!
+                        </p>
+                    </div>
+
+                    <h2>7. Best Practices для Python на сервере</h2>
+
+                    <h3>Управление окружениями:</h3>
+
+                    <ul>
+                        <li>
+                            <strong>Используйте виртуальные окружения:</strong>
+                            Всегда работайте в активированном Conda-окружении
+                        </li>
+                        <li>
+                            <strong>Именуйте окружения осмысленно:</strong>
+                            Используйте названия, отражающие назначение проекта
+                        </li>
+                        <li>
+                            <strong>Документируйте зависимости:</strong>
+                            Регулярно обновляйте
+                            <code>environment.yml</code> или
+                            <code>requirements.txt</code>
+                        </li>
+                    </ul>
+
+                    <h3>Оптимизация ресурсов:</h3>
+
+                    <ul>
+                        <li>
+                            <strong>Мониторинг ресурсов:</strong> Используйте
+                            <code>htop</code>, <code>nvtop</code> для
+                            отслеживания потребления
+                        </li>
+                        <li>
+                            <strong>Правильное использование GPU:</strong>
+                            Всегда указывайте <code>CUDA_VISIBLE_DEVICES</code>
+                        </li>
+                        <li>
+                            <strong>Очистка кэша:</strong> Регулярно очищайте
+                            pip и conda кэш
+                        </li>
+                    </ul>
+
+                    <pre><code class="language-bash"># Очистка conda кэша
+conda clean --all
+
+# Очистка pip кэша
+pip cache purge</code></pre>
+
+                    <h3>Безопасность и стабильность:</h3>
+
+                    <ul>
+                        <li>
+                            <strong>Регулярные бэкапы:</strong> Сохраняйте
+                            важные данные и конфигурации
+                        </li>
+                        <li>
+                            <strong>Тестирование окружений:</strong> Проверяйте
+                            работоспособность после обновлений
+                        </li>
+                        <li>
+                            <strong>Изоляция проектов:</strong> Не смешивайте
+                            зависимости разных проектов
+                        </li>
+                    </ul>
+
+                    <h2>8. Полезные команды для диагностики</h2>
+
+                    <pre><code class="language-bash"># Информация о conda
+conda info
+
+# Список установленных пакетов
+conda list
+
+# Информация о Python
+python --version
+which python
+
+# Проверка путей Python
+python -c "import sys; print(sys.path)"
+
+# Информация о GPU
+nvidia-smi
+python -c "import torch; print(torch.version.cuda)"</code></pre>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <div class="container">
+                <p>&copy; 2025 SSH-сервер ИИ центра МФТИ.</p>
+            </div>
+        </footer>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+        <script src="script.js"></script>
+    </body>
+</html>

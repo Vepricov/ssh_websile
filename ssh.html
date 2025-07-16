@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>SSH Подключение - SSH-сервер ИИ центра МФТИ</title>
+        <link rel="stylesheet" href="styles.css" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+        />
+    </head>
+    <body>
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="nav-logo">
+                    <h2>SSH-сервер ИИ центра МФТИ</h2>
+                </div>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="index.html" class="nav-link">Главная</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="rules.html" class="nav-link">Правила</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="ssh.html" class="nav-link active">SSH</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="python.html" class="nav-link">Python</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="linux.html" class="nav-link">Linux</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="tmux.html" class="nav-link">Tmux</a>
+                    </li>
+                </ul>
+                <div class="hamburger">
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                </div>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <section class="content-header">
+                <div class="container">
+                    <h1>Подключение к SSH-серверу</h1>
+                    <p>
+                        Полное руководство по настройке безопасного и удобного
+                        подключения к серверу
+                    </p>
+                </div>
+            </section>
+
+            <section class="content-page">
+                <div class="content-body">
+                    <p>
+                        Для эффективной и безопасной работы с нашим
+                        SSH-сервером, важно понимать, как правильно
+                        устанавливать соединение и управлять им. В этом разделе
+                        мы подробно рассмотрим процесс подключения, генерации
+                        SSH-ключей и настройки конфигурации SSH для вашего
+                        удобства.
+                    </p>
+
+                    <h2>1. Базовое подключение по SSH</h2>
+
+                    <p>
+                        Для первого подключения к серверу вам потребуется
+                        использовать команду <code>ssh</code> в вашем терминале.
+                        Эта команда позволяет установить защищенное соединение с
+                        удаленным сервером.
+                    </p>
+
+                    <h3>Формат команды:</h3>
+                    <pre><code class="language-bash">ssh -p [порт] [имя_пользователя]@[адрес_сервера]</code></pre>
+
+                    <h3>Пример для нашего сервера:</h3>
+                    <pre><code class="language-bash">ssh -p 10096 username@proxy2.cod.phystech.edu</code></pre>
+
+                    <p>
+                        Где <code>username</code> — это ваше имя пользователя на
+                        сервере. После выполнения этой команды система запросит
+                        ваш пароль. Введите его, чтобы установить соединение.
+                    </p>
+
+                    <div
+                        style="
+                            background: #fff5f5;
+                            border-left: 4px solid #feb2b2;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Важно:</strong> При первом подключении
+                            система может запросить подтверждение подлинности
+                            сервера. Введите <code>yes</code> для продолжения.
+                        </p>
+                    </div>
+
+                    <h2>2. Генерация SSH-ключей для беспарольного доступа</h2>
+
+                    <p>
+                        Ввод пароля при каждом подключении может быть неудобным
+                        и отнимать время. Для повышения удобства и безопасности
+                        рекомендуется использовать пару SSH-ключей: приватный
+                        (private key) и публичный (public key). Приватный ключ
+                        хранится на вашем локальном компьютере и должен быть
+                        строго конфиденциальным. Публичный ключ размещается на
+                        сервере.
+                    </p>
+
+                    <h3>Шаг 1: Генерация пары ключей</h3>
+
+                    <p>
+                        Вы можете сгенерировать пару SSH-ключей с помощью
+                        команды <code>ssh-keygen</code>. Рекомендуется
+                        использовать алгоритм <code>ed25519</code> для лучшей
+                        безопасности.
+                    </p>
+
+                    <pre><code class="language-bash">ssh-keygen -t ed25519 -f ~/.ssh/opt_mipt</code></pre>
+
+                    <p>
+                        Эта команда создаст два файла в директории
+                        <code>~/.ssh</code> на вашем локальном компьютере:
+                    </p>
+
+                    <ul>
+                        <li><code>opt_mipt</code> (ваш приватный ключ)</li>
+                        <li><code>opt_mipt.pub</code> (ваш публичный ключ)</li>
+                    </ul>
+
+                    <div
+                        style="
+                            background: #f0fff4;
+                            border-left: 4px solid #38a169;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Совет:</strong> При генерации ключей система
+                            может предложить ввести пароль для дополнительной
+                            защиты приватного ключа. Это необязательно, но
+                            рекомендуется для повышения безопасности.
+                        </p>
+                    </div>
+
+                    <h3>Шаг 2: Копирование публичного ключа на сервер</h3>
+
+                    <p>
+                        После генерации ключей вам необходимо скопировать
+                        публичный ключ (<code>opt_mipt.pub</code>) на сервер.
+                        Это можно сделать с помощью утилиты
+                        <code>ssh-copy-id</code>:
+                    </p>
+
+                    <pre><code class="language-bash">ssh-copy-id -i ~/.ssh/opt_mipt -p 10096 username@proxy2.cod.phystech.edu</code></pre>
+
+                    <p>
+                        Эта команда автоматически добавит содержимое вашего
+                        публичного ключа в файл
+                        <code>~/.ssh/authorized_keys</code> на сервере. После
+                        успешного выполнения этой команды вы сможете
+                        подключаться к серверу без ввода пароля, используя вашу
+                        пару SSH-ключей.
+                    </p>
+
+                    <h3>Альтернативный способ копирования ключа:</h3>
+
+                    <p>
+                        Если <code>ssh-copy-id</code> недоступен, вы можете
+                        скопировать ключ вручную:
+                    </p>
+
+                    <pre><code class="language-bash"># Показать содержимое публичного ключа
+cat ~/.ssh/opt_mipt.pub
+
+# Подключиться к серверу и добавить ключ в authorized_keys
+ssh -p 10096 username@proxy2.cod.phystech.edu
+mkdir -p ~/.ssh
+echo "ваш_публичный_ключ" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+chmod 700 ~/.ssh</code></pre>
+
+                    <h2>3. Настройка SSH Config для упрощенного подключения</h2>
+
+                    <p>
+                        Чтобы еще больше упростить процесс подключения и
+                        избежать необходимости каждый раз вводить полный адрес и
+                        порт, вы можете настроить файл конфигурации SSH на вашем
+                        локальном компьютере (<code>~/.ssh/config</code>).
+                    </p>
+
+                    <h3>Пример настройки:</h3>
+
+                    <p>
+                        Откройте или создайте файл <code>~/.ssh/config</code> в
+                        вашем любимом текстовом редакторе и добавьте следующие
+                        строки:
+                    </p>
+
+                    <pre><code class="language-config">Host opt
+  User username
+  HostName proxy2.cod.phystech.edu
+  Port 10096
+  IdentityFile ~/.ssh/opt_mipt</code></pre>
+
+                    <h3>Пояснения параметров:</h3>
+
+                    <ul>
+                        <li>
+                            <code>Host opt</code>: Это короткое имя (алиас),
+                            которое вы будете использовать для подключения. Вы
+                            можете выбрать любое удобное для вас имя.
+                        </li>
+                        <li>
+                            <code>User username</code>: Ваше имя пользователя на
+                            SSH-сервере.
+                        </li>
+                        <li>
+                            <code>HostName proxy2.cod.phystech.edu</code>:
+                            Полный адрес SSH-сервера.
+                        </li>
+                        <li>
+                            <code>Port 10096</code>: Порт, используемый для
+                            SSH-соединения.
+                        </li>
+                        <li>
+                            <code>IdentityFile ~/.ssh/opt_mipt</code>: Путь к
+                            вашему приватному ключу на локальном компьютере.
+                        </li>
+                    </ul>
+
+                    <h3>Использование настроенного подключения:</h3>
+
+                    <p>
+                        Теперь для подключения к серверу вам достаточно ввести:
+                    </p>
+
+                    <pre><code class="language-bash">ssh opt</code></pre>
+
+                    <p>
+                        Это значительно упрощает процесс и делает его более
+                        удобным.
+                    </p>
+
+                    <h2>4. Дополнительные настройки SSH Config</h2>
+
+                    <p>
+                        Вы можете добавить дополнительные параметры в ваш SSH
+                        config для еще большего удобства:
+                    </p>
+
+                    <pre><code class="language-config">Host opt
+  User username
+  HostName proxy2.cod.phystech.edu
+  Port 10096
+  IdentityFile ~/.ssh/opt_mipt
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+  TCPKeepAlive yes
+  Compression yes</code></pre>
+
+                    <h3>Дополнительные параметры:</h3>
+
+                    <ul>
+                        <li>
+                            <code>ServerAliveInterval 60</code>: Отправляет
+                            keep-alive сообщения каждые 60 секунд
+                        </li>
+                        <li>
+                            <code>ServerAliveCountMax 3</code>: Максимальное
+                            количество неотвеченных keep-alive сообщений
+                        </li>
+                        <li>
+                            <code>TCPKeepAlive yes</code>: Включает TCP
+                            keep-alive
+                        </li>
+                        <li>
+                            <code>Compression yes</code>: Включает сжатие данных
+                        </li>
+                    </ul>
+
+                    <h2>5. Устранение неполадок (Troubleshooting)</h2>
+
+                    <p>
+                        Если у вас возникли проблемы с подключением, проверьте
+                        следующее:
+                    </p>
+
+                    <h3>Проблемы с аутентификацией:</h3>
+                    <ul>
+                        <li>
+                            <strong
+                                >Правильность имени пользователя и
+                                пароля:</strong
+                            >
+                            Убедитесь, что вы используете правильные учетные
+                            данные.
+                        </li>
+                        <li>
+                            <strong>Права доступа к ключам:</strong> Убедитесь,
+                            что права доступа к вашим приватным ключам
+                            установлены корректно:
+                        </li>
+                    </ul>
+
+                    <pre><code class="language-bash">chmod 600 ~/.ssh/opt_mipt
+chmod 700 ~/.ssh</code></pre>
+
+                    <h3>Проблемы с подключением:</h3>
+                    <ul>
+                        <li>
+                            <strong>Доступность сервера:</strong> Проверьте, что
+                            сервер доступен и не заблокирован фаерволом.
+                        </li>
+                        <li>
+                            <strong>Правильность порта:</strong> Убедитесь, что
+                            используете правильный порт (10096).
+                        </li>
+                    </ul>
+
+                    <h3>Отладка SSH:</h3>
+
+                    <p>
+                        Для получения подробной информации о процессе
+                        подключения используйте флаг <code>-v</code>:
+                    </p>
+
+                    <pre><code class="language-bash">ssh -v -p 10096 username@proxy2.cod.phystech.edu</code></pre>
+
+                    <p>
+                        Для еще более подробной информации используйте
+                        <code>-vv</code> или <code>-vvv</code>.
+                    </p>
+
+                    <h3>Проверка содержимого authorized_keys:</h3>
+
+                    <p>
+                        На сервере проверьте, что ваш публичный ключ корректно
+                        добавлен:
+                    </p>
+
+                    <pre><code class="language-bash">cat ~/.ssh/authorized_keys</code></pre>
+
+                    <div
+                        style="
+                            background: #fff5f5;
+                            border-left: 4px solid #feb2b2;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Если проблемы сохраняются:</strong>
+                            Обратитесь к администратору сервера с подробным
+                            описанием проблемы и сообщениями об ошибках.
+                        </p>
+                    </div>
+
+                    <h2>6. Безопасность SSH</h2>
+
+                    <h3>Лучшие практики:</h3>
+
+                    <ul>
+                        <li>
+                            <strong
+                                >Никогда не делитесь приватным ключом:</strong
+                            >
+                            Ваш приватный ключ должен оставаться только на вашем
+                            компьютере.
+                        </li>
+                        <li>
+                            <strong
+                                >Используйте пароль для приватного
+                                ключа:</strong
+                            >
+                            Это добавляет дополнительный уровень защиты.
+                        </li>
+                        <li>
+                            <strong>Регулярно обновляйте ключи:</strong>
+                            Рекомендуется обновлять SSH-ключи каждые 1-2 года.
+                        </li>
+                        <li>
+                            <strong>Отключайте неиспользуемые ключи:</strong>
+                            Удаляйте старые ключи из
+                            <code>authorized_keys</code> на сервере.
+                        </li>
+                        <li>
+                            <strong
+                                >Используйте разные ключи для разных
+                                серверов:</strong
+                            >
+                            Не используйте один ключ для всех серверов.
+                        </li>
+                    </ul>
+
+                    <h3>Проверка активных SSH-сессий:</h3>
+
+                    <pre><code class="language-bash"># Показать активные SSH-сессии
+who
+
+# Показать подробную информацию о сессиях
+w</code></pre>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <div class="container">
+                <p>&copy; 2025 SSH-сервер ИИ центра МФТИ.</p>
+            </div>
+        </footer>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+        <script src="script.js"></script>
+    </body>
+</html>

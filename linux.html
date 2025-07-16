@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Linux команды и утилиты - SSH-сервер ИИ центра МФТИ</title>
+        <link rel="stylesheet" href="styles.css" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+        />
+    </head>
+    <body>
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="nav-logo">
+                    <h2>SSH-сервер ИИ центра МФТИ</h2>
+                </div>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="index.html" class="nav-link">Главная</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="rules.html" class="nav-link">Правила</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="ssh.html" class="nav-link">SSH</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="python.html" class="nav-link">Python</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="linux.html" class="nav-link active">Linux</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="tmux.html" class="nav-link">Tmux</a>
+                    </li>
+                </ul>
+                <div class="hamburger">
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                </div>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <section class="content-header">
+                <div class="container">
+                    <h1>Полезные Linux команды и утилиты</h1>
+                    <p>
+                        Справочник команд для эффективной работы в терминале и
+                        мониторинга ресурсов сервера
+                    </p>
+                </div>
+            </section>
+
+            <section class="content-page">
+                <div class="content-body">
+                    <p>
+                        Работа в терминале Linux является неотъемлемой частью
+                        взаимодействия с SSH-сервером. Знание основных команд и
+                        утилит значительно упрощает навигацию, управление
+                        файлами, мониторинг ресурсов и выполнение различных
+                        задач. В этом разделе мы рассмотрим наиболее полезные
+                        команды, которые помогут вам эффективно работать на
+                        сервере.
+                    </p>
+
+                    <h2>1. Мониторинг системы</h2>
+
+                    <p>
+                        Эффективный мониторинг ресурсов сервера критически важен
+                        для понимания текущей нагрузки и оптимизации ваших
+                        процессов. Эти утилиты помогут вам отслеживать
+                        использование CPU, памяти, диска и GPU.
+                    </p>
+
+                    <h3><code>htop</code> - Интерактивный монитор процессов</h3>
+
+                    <p>
+                        <code>htop</code> — это улучшенная интерактивная версия
+                        утилиты <code>top</code>. Она предоставляет динамический
+                        обзор запущенных процессов, позволяя легко сортировать,
+                        фильтровать и управлять ими.
+                    </p>
+
+                    <pre><code class="language-bash"># Запуск htop
+htop</code></pre>
+
+                    <h4>Основные возможности htop:</h4>
+
+                    <ul>
+                        <li>
+                            <strong>Визуализация:</strong> Отображает
+                            использование CPU, памяти и swap в виде графиков
+                        </li>
+                        <li>
+                            <strong>Сортировка:</strong> Можно сортировать
+                            процессы по CPU, памяти, PID и другим параметрам
+                        </li>
+                        <li>
+                            <strong>Поиск:</strong> Быстрый поиск процессов по
+                            имени (клавиша <code>/</code>)
+                        </li>
+                        <li>
+                            <strong>Управление процессами:</strong> Отправка
+                            сигналов (например, <code>kill</code>) процессам
+                        </li>
+                    </ul>
+
+                    <h4>Полезные горячие клавиши в htop:</h4>
+
+                    <pre><code class="language-text">F1 - Справка
+F2 - Настройки
+F3 - Поиск процесса
+F4 - Фильтр
+F5 - Дерево процессов
+F6 - Сортировка
+F9 - Убить процесс
+F10 - Выход
+
+Пробел - Отметить процесс
+u - Показать процессы пользователя
+t - Переключить вид дерева
+H - Показать/скрыть потоки</code></pre>
+
+                    <h3><code>nvtop</code> - Мониторинг GPU</h3>
+
+                    <p>
+                        <code>nvtop</code> — это интерактивный монитор для
+                        NVIDIA GPU, аналогичный <code>htop</code> для CPU. Он
+                        предоставляет подробную информацию о загрузке GPU,
+                        использовании памяти, температуре и запущенных процессах
+                        на каждом GPU.
+                    </p>
+
+                    <pre><code class="language-bash"># Запуск nvtop
+nvtop</code></pre>
+
+                    <h4>Основные возможности nvtop:</h4>
+
+                    <ul>
+                        <li>
+                            <strong>Детальная информация по GPU:</strong>
+                            Отображает загрузку каждого GPU, использование
+                            памяти, температуру и потребляемую мощность
+                        </li>
+                        <li>
+                            <strong>Процессы на GPU:</strong> Показывает, какие
+                            процессы используют GPU и сколько ресурсов они
+                            потребляют
+                        </li>
+                        <li>
+                            <strong>Обновление в реальном времени:</strong>
+                            Данные обновляются динамически, позволяя отслеживать
+                            изменения
+                        </li>
+                    </ul>
+
+                    <h3>
+                        <code>nvidia-smi</code> - Утилита командной строки для
+                        NVIDIA GPU
+                    </h3>
+
+                    <p>
+                        <code>nvidia-smi</code> (NVIDIA System Management
+                        Interface) — это утилита командной строки, которая
+                        предоставляет широкий спектр информации о ваших NVIDIA
+                        GPU и позволяет управлять ими.
+                    </p>
+
+                    <h4>Основные команды nvidia-smi:</h4>
+
+                    <pre><code class="language-bash"># Общая информация о GPU
+nvidia-smi
+
+# Непрерывный мониторинг (обновление каждую секунду)
+watch -n 1 nvidia-smi
+
+# Информация о конкретном GPU (например, GPU 0)
+nvidia-smi -i 0
+
+# Только процессы, использующие GPU
+nvidia-smi --query-compute-apps=pid,gpu_name,gpu_bus_id,used_gpu_memory --format=csv
+
+# Подробная информация о GPU
+nvidia-smi -q
+
+# Информация о драйвере и CUDA
+nvidia-smi --query-gpu=driver_version,cuda_version --format=csv</code></pre>
+
+                    <h3>Мониторинг дискового пространства</h3>
+
+                    <h4><code>df</code> - Информация о файловых системах</h4>
+
+                    <pre><code class="language-bash"># Показать использование дискового пространства в удобочитаемом формате
+df -h
+
+# Показать только локальные файловые системы
+df -hl
+
+# Показать информацию о конкретной директории
+df -h /home</code></pre>
+
+                    <h4><code>du</code> - Размер директорий и файлов</h4>
+
+                    <pre><code class="language-bash"># Показать размер текущей директории
+du -sh .
+
+# Показать размер конкретной папки
+du -sh /path/to/your/folder
+
+# Показать размер поддиректорий в текущей директории
+du -h --max-depth=1 .
+
+# Показать размер всех файлов и папок
+du -ah
+
+# Найти самые большие директории
+du -h --max-depth=1 | sort -hr</code></pre>
+
+                    <h2>
+                        2. Работа с <code>tmux</code> - Мультиплексор терминала
+                    </h2>
+
+                    <p>
+                        <code>tmux</code> (Terminal Multiplexer) — это мощный
+                        инструмент, который позволяет создавать и управлять
+                        несколькими терминальными сессиями в одном окне,
+                        отключаться от них и подключаться снова, даже если ваше
+                        SSH-соединение прервалось. Это особенно полезно для
+                        запуска длительных процессов на сервере.
+                    </p>
+
+                    <h3>Что такое <code>tmux</code> и зачем он нужен?</h3>
+
+                    <p>
+                        Представьте, что вы запускаете длительный скрипт на
+                        сервере, и ваше интернет-соединение прерывается. Без
+                        <code>tmux</code> ваш скрипт остановится. С
+                        <code>tmux</code> вы можете запустить скрипт в сессии
+                        <code>tmux</code>, отключиться от сервера, а затем снова
+                        подключиться и продолжить работу с того места, где
+                        остановились.
+                    </p>
+
+                    <h3>Основные концепции tmux:</h3>
+
+                    <ul>
+                        <li>
+                            <strong>Сессия (Session):</strong> Контейнер для
+                            одного или нескольких окон. Вы можете иметь
+                            несколько сессий, каждая из которых может быть
+                            названа
+                        </li>
+                        <li>
+                            <strong>Окно (Window):</strong> Эквивалент вкладки в
+                            браузере. Каждое окно может содержать несколько
+                            панелей
+                        </li>
+                        <li>
+                            <strong>Панель (Pane):</strong> Разделение окна на
+                            несколько независимых терминалов
+                        </li>
+                    </ul>
+
+                    <h3>Основные команды tmux:</h3>
+
+                    <p>
+                        Все команды <code>tmux</code> начинаются с
+                        <strong>префикса</strong>. По умолчанию префикс —
+                        <code>Ctrl+b</code>.
+                    </p>
+
+                    <h4>Управление сессиями:</h4>
+
+                    <pre><code class="language-bash"># Запуск новой сессии
+tmux new -s my_session
+
+# Запуск новой сессии с именем
+tmux new-session -d -s my_session
+
+# Подключение к существующей сессии
+tmux attach -t my_session
+
+# Список всех сессий
+tmux ls
+
+# Завершение сессии
+tmux kill-session -t my_session
+
+# Переименование сессии
+tmux rename-session -t old_name new_name</code></pre>
+
+                    <h4>
+                        Команды внутри сессии tmux (после <code>Ctrl+b</code>):
+                    </h4>
+
+                    <pre><code class="language-text">Управление сессиями:
+d - Отключиться от сессии (detach)
+s - Список сессий
+$ - Переименовать сессию
+
+Управление окнами:
+c - Создать новое окно
+n - Перейти к следующему окну
+p - Перейти к предыдущему окну
+[номер] - Перейти к окну с указанным номером
+, - Переименовать текущее окно
+& - Закрыть текущее окно
+
+Управление панелями:
+% - Разделить панель вертикально
+" - Разделить панель горизонтально
+стрелки - Перемещение между панелями
+z - Развернуть/свернуть текущую панель
+x - Закрыть текущую панель
+{ - Переместить панель влево
+} - Переместить панель вправо
+
+Другие полезные команды:
+? - Показать все горячие клавиши
+: - Командная строка tmux
+[ - Режим копирования (для прокрутки)
+] - Вставить скопированный текст</code></pre>
+
+                    <h3>Полезные конфигурации tmux</h3>
+
+                    <p>
+                        Вы можете настроить <code>tmux</code> под свои нужды,
+                        создав файл <code>.tmux.conf</code> в вашей домашней
+                        директории:
+                    </p>
+
+                    <pre><code class="language-bash"># ~/.tmux.conf
+
+# Изменить префикс на Ctrl+a
+unbind C-b
+set -g prefix C-a
+bind C-a send-prefix
+
+# Включить поддержку мыши
+set -g mouse on
+
+# Увеличить историю
+set -g history-limit 10000
+
+# Начинать нумерацию окон с 1
+set -g base-index 1
+set -g pane-base-index 1
+
+# Быстрое перезагрузка конфигурации
+bind r source-file ~/.tmux.conf \; display "Config reloaded!"
+
+# Более удобные клавиши для разделения панелей
+bind | split-window -h
+bind - split-window -v
+
+# Vim-подобная навигация между панелями
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R</code></pre>
+
+                    <p>
+                        После сохранения файла выполните команду для применения
+                        изменений:
+                    </p>
+
+                    <pre><code class="language-bash">tmux source-file ~/.tmux.conf</code></pre>
+
+                    <h2>3. Файловая система: Навигация и управление</h2>
+
+                    <p>
+                        Эффективная работа с файлами и директориями — основа
+                        работы в Linux.
+                    </p>
+
+                    <h3>Навигация</h3>
+
+                    <pre><code class="language-bash"># Показать текущую директорию
+pwd
+
+# Список файлов и папок
+ls
+ls -l          # Подробный список
+ls -a          # Показать скрытые файлы
+ls -lh         # Подробный список с размерами в удобочитаемом формате
+ls -la         # Подробный список со скрытыми файлами
+ls -lt         # Сортировка по времени изменения
+ls -lS         # Сортировка по размеру
+
+# Переход в другую директорию
+cd /path/to/directory
+cd ..          # На один уровень вверх
+cd ~           # В домашнюю директорию
+cd -           # В предыдущую директорию
+cd             # В домашнюю директорию (короткая форма)</code></pre>
+
+                    <h3>Работа с файлами и директориями</h3>
+
+                    <pre><code class="language-bash"># Копирование файлов и директорий
+cp file.txt new_file.txt
+cp -r folder/ new_folder/    # Рекурсивное копирование директорий
+cp -i file.txt backup.txt    # Интерактивное копирование (запрос подтверждения)
+
+# Перемещение и переименование
+mv old_name.txt new_name.txt
+mv file.txt /path/to/another/folder/
+mv *.txt text_files/         # Перемещение всех .txt файлов
+
+# Удаление файлов и директорий
+rm file.txt
+rm -r directory/             # Рекурсивное удаление директории
+rm -f file.txt               # Принудительное удаление без запроса
+rm -rf dangerous_folder/     # Принудительное рекурсивное удаление
+rm *.tmp                     # Удаление всех .tmp файлов
+
+# Создание директорий
+mkdir new_folder
+mkdir -p path/to/nested/folder    # Создание вложенных директорий
+
+# Создание пустых файлов
+touch new_file.txt
+touch file1.txt file2.txt file3.txt</code></pre>
+
+                    <h3>Просмотр содержимого файлов</h3>
+
+                    <pre><code class="language-bash"># Вывод всего содержимого файла
+cat file.txt
+cat file1.txt file2.txt      # Объединение нескольких файлов
+
+# Постраничный просмотр
+less file.txt                # Рекомендуется для больших файлов
+more file.txt                # Простой постраничный просмотр
+
+# Первые и последние строки
+head file.txt                # Первые 10 строк
+head -n 5 file.txt           # Первые 5 строк
+tail file.txt                # Последние 10 строк
+tail -n 20 file.txt          # Последние 20 строк
+tail -f logfile.log          # Отслеживание изменений в реальном времени
+
+# Подсчет строк, слов, символов
+wc file.txt
+wc -l file.txt               # Только количество строк
+wc -w file.txt               # Только количество слов</code></pre>
+
+                    <h3>Поиск файлов и содержимого</h3>
+
+                    <pre><code class="language-bash"># Поиск файлов по имени
+find . -name "*.py"
+find /home/username -name "report.pdf"
+find . -type f -name "*.log"        # Только файлы
+find . -type d -name "backup*"      # Только директории
+find . -size +100M                  # Файлы больше 100MB
+find . -mtime -7                    # Файлы, измененные за последние 7 дней
+
+# Поиск текста в файлах
+grep "error" logfile.log
+grep -r "function_name" .           # Рекурсивный поиск в директориях
+grep -i "error" logfile.log         # Игнорировать регистр
+grep -n "error" logfile.log         # Показать номера строк
+grep -v "debug" logfile.log         # Исключить строки с "debug"
+grep -E "error|warning" logfile.log # Поиск нескольких паттернов
+
+# Поиск и замена в файлах
+sed 's/old_text/new_text/g' file.txt
+sed -i 's/old_text/new_text/g' file.txt  # Изменить файл на месте</code></pre>
+
+                    <h3>Права доступа</h3>
+
+                    <pre><code class="language-bash"># Изменение прав доступа
+chmod 755 script.sh             # rwxr-xr-x
+chmod 644 document.txt          # rw-r--r--
+chmod +x script.sh              # Добавить право на выполнение
+chmod -w file.txt               # Убрать право на запись
+chmod u+x,g+r,o-w file.txt      # Комбинированные изменения
+
+# Изменение владельца и группы
+chown username:groupname file.txt
+chown -R username:groupname directory/  # Рекурсивно
+
+# Просмотр прав доступа
+ls -l file.txt
+stat file.txt                   # Подробная информация о файле</code></pre>
+
+                    <h2>4. Управление процессами</h2>
+
+                    <pre><code class="language-bash"># Просмотр запущенных процессов
+ps aux                          # Все процессы
+ps aux | grep python            # Процессы, содержащие "python"
+pgrep -f "script_name"          # Найти PID процесса по имени
+
+# Завершение процессов
+kill PID                        # Мягкое завершение
+kill -9 PID                     # Принудительное завершение
+killall process_name            # Завершить все процессы с именем
+pkill -f "script_name"          # Завершить процессы по паттерну
+
+# Запуск процессов в фоне
+command &                       # Запустить в фоне
+nohup command &                 # Запустить в фоне, игнорируя SIGHUP
+disown                          # Отвязать процесс от терминала
+
+# Управление заданиями
+jobs                            # Список фоновых заданий
+fg %1                           # Перевести задание в передний план
+bg %1                           # Перевести задание в фон
+Ctrl+Z                          # Приостановить текущий процесс</code></pre>
+
+                    <h2>5. Сетевые утилиты</h2>
+
+                    <pre><code class="language-bash"># Проверка сетевого соединения
+ping google.com
+ping -c 4 google.com            # Отправить только 4 пакета
+
+# Информация о сетевых соединениях
+netstat -tuln                   # Прослушиваемые порты
+ss -tuln                        # Современная альтернатива netstat
+
+# Загрузка файлов
+wget https://example.com/file.zip
+curl -O https://example.com/file.zip
+curl -L https://example.com/file.zip  # Следовать редиректам
+
+# Передача файлов
+scp file.txt user@server:/path/
+rsync -avz folder/ user@server:/path/</code></pre>
+
+                    <h2>6. Архивирование и сжатие</h2>
+
+                    <pre><code class="language-bash"># Создание архивов
+tar -czf archive.tar.gz folder/     # Создать сжатый архив
+tar -cf archive.tar folder/         # Создать несжатый архив
+zip -r archive.zip folder/          # Создать ZIP архив
+
+# Извлечение архивов
+tar -xzf archive.tar.gz             # Извлечь сжатый архив
+tar -xf archive.tar                 # Извлечь несжатый архив
+unzip archive.zip                   # Извлечь ZIP архив
+
+# Просмотр содержимого архивов
+tar -tzf archive.tar.gz             # Список файлов в архиве
+unzip -l archive.zip                # Список файлов в ZIP</code></pre>
+
+                    <h2>7. Полезные комбинации и трюки</h2>
+
+                    <pre><code class="language-bash"># Быстрая навигация по истории команд
+!!                              # Повторить последнюю команду
+!n                              # Выполнить команду номер n из истории
+!string                         # Выполнить последнюю команду, начинающуюся с string
+Ctrl+R                          # Поиск по истории команд
+
+# Перенаправление ввода/вывода
+command > file.txt              # Перенаправить вывод в файл
+command >> file.txt             # Добавить вывод в файл
+command 2> error.log            # Перенаправить ошибки в файл
+command &> all_output.log       # Перенаправить все в файл
+command | grep pattern          # Передать вывод другой команде
+
+# Полезные алиасы (добавить в ~/.bashrc)
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias grep='grep --color=auto'
+
+# Мониторинг в реальном времени
+watch -n 1 'df -h'              # Обновлять каждую секунду
+watch -n 5 'ps aux | head -20'  # Мониторинг процессов</code></pre>
+
+                    <div
+                        style="
+                            background: #f0fff4;
+                            border-left: 4px solid #38a169;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
+                        <p>
+                            <strong>Совет:</strong> Освоение этих команд
+                            значительно повысит вашу продуктивность при работе с
+                            SSH-сервером. Начните с основных команд навигации и
+                            мониторинга, затем постепенно изучайте более
+                            продвинутые возможности.
+                        </p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <div class="container">
+                <p>&copy; 2025 SSH-сервер ИИ центра МФТИ.</p>
+            </div>
+        </footer>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+        <script src="script.js"></script>
+    </body>
+</html>
