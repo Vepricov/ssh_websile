@@ -218,7 +218,7 @@ body {
     gap: 1rem;
 }
 
-.notice-header h2 {
+.notice-header h3 {
     color: #c53030;
     font-size: 1.8rem;
     font-weight: 600;
@@ -233,17 +233,25 @@ body {
     font-weight: 500;
 }
 
-.google-form-placeholder {
-    margin-top: 2rem;
-    padding: 1.5rem;
-    background: white;
-    border-radius: 8px;
-    border: 2px dashed #cbd5e0;
+.registration-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-top: 1.5rem;
 }
 
-.google-form-placeholder h3 {
-    color: #2d3748;
+.registration-option {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.registration-option h4 {
+    color: #c53030;
+    font-size: 1.2rem;
     margin-bottom: 1rem;
+    font-weight: 600;
 }
 
 .form-link-placeholder {
@@ -252,6 +260,12 @@ body {
     border-radius: 6px;
     border-left: 4px solid #38a169;
     margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .registration-options {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Sections overview */
