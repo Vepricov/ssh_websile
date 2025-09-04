@@ -13,7 +13,11 @@
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
         />
-        <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='20' y='40' width='160' height='120' rx='8' fill='%231a365d' stroke='%2338a169' stroke-width='2'/%3E%3Crect x='30' y='50' width='140' height='20' rx='4' fill='%2338a169'/%3E%3Crect x='30' y='80' width='140' height='20' rx='4' fill='%232d3748'/%3E%3Crect x='30' y='110' width='140' height='20' rx='4' fill='%232d3748'/%3E%3Crect x='30' y='140' width='140' height='10' rx='2' fill='%2368d391'/%3E%3Ccircle cx='160' cy='60' r='4' fill='%2368d391'/%3E%3Ccircle cx='150' cy='60' r='4' fill='%23f56565'/%3E%3C/svg%3E">
+        <link
+            rel="icon"
+            type="image/svg+xml"
+            href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='20' y='40' width='160' height='120' rx='8' fill='%231a365d' stroke='%2338a169' stroke-width='2'/%3E%3Crect x='30' y='50' width='140' height='20' rx='4' fill='%2338a169'/%3E%3Crect x='30' y='80' width='140' height='20' rx='4' fill='%232d3748'/%3E%3Crect x='30' y='110' width='140' height='20' rx='4' fill='%232d3748'/%3E%3Crect x='30' y='140' width='140' height='10' rx='2' fill='%2368d391'/%3E%3Ccircle cx='160' cy='60' r='4' fill='%2368d391'/%3E%3Ccircle cx='150' cy='60' r='4' fill='%23f56565'/%3E%3C/svg%3E"
+        />
     </head>
     <body>
         <nav class="navbar">
@@ -83,8 +87,12 @@
                     <h3>Формат команды:</h3>
                     <pre><code class="language-bash">ssh -p [порт] [имя_пользователя]@[адрес_сервера]</code></pre>
 
-                    <h3>Пример для нашего сервера:</h3>
-                    <pre><code class="language-bash">ssh -p 10096 username@proxy2.cod.phystech.edu</code></pre>
+                    <h3>Пример для наших серверов:</h3>
+                    <pre><code class="language-bash"># Старый сервер (x4 RTX 2080 11гб, x2 A100 40гб, x2 A100 80гб)
+ssh -p 10096 username@proxy2.cod.phystech.edu
+
+# Новый сервер (x4 A100 80гб)
+ssh -p 10210 username@proxy2.cod.phystech.edu</code></pre>
 
                     <p>
                         Где <code>username</code> — это ваше имя пользователя на
@@ -167,7 +175,7 @@
                         <code>ssh-copy-id</code>:
                     </p>
 
-                    <pre><code class="language-bash">ssh-copy-id -i ~/.ssh/opt_mipt -p 10096 username@proxy2.cod.phystech.edu</code></pre>
+                    <pre><code class="language-bash">ssh-copy-id -i ~/.ssh/opt_mipt -p [10096 или 10210] username@proxy2.cod.phystech.edu</code></pre>
 
                     <p>
                         Эта команда автоматически добавит содержимое вашего
@@ -189,7 +197,7 @@
 cat ~/.ssh/opt_mipt.pub
 
 # Подключиться к серверу и добавить ключ в authorized_keys
-ssh -p 10096 username@proxy2.cod.phystech.edu
+ssh -p [10096 или 10210] username@proxy2.cod.phystech.edu
 mkdir -p ~/.ssh
 echo "ваш_публичный_ключ" >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
@@ -215,7 +223,7 @@ chmod 700 ~/.ssh</code></pre>
                     <pre><code class="language-config">Host opt
   User username
   HostName proxy2.cod.phystech.edu
-  Port 10096
+  Port [10096 или 10210]
   IdentityFile ~/.ssh/opt_mipt</code></pre>
 
                     <h3>Пояснения параметров:</h3>
@@ -235,8 +243,8 @@ chmod 700 ~/.ssh</code></pre>
                             Полный адрес SSH-сервера.
                         </li>
                         <li>
-                            <code>Port 10096</code>: Порт, используемый для
-                            SSH-соединения.
+                            <code>Port [10096 или 10210]</code>: Порт,
+                            используемый для SSH-соединения.
                         </li>
                         <li>
                             <code>IdentityFile ~/.ssh/opt_mipt</code>: Путь к
@@ -267,7 +275,7 @@ chmod 700 ~/.ssh</code></pre>
                     <pre><code class="language-config">Host opt
   User username
   HostName proxy2.cod.phystech.edu
-  Port 10096
+  Port [10096 или 10210]
   IdentityFile ~/.ssh/opt_mipt
   ServerAliveInterval 60
   ServerAliveCountMax 3
@@ -329,7 +337,7 @@ chmod 700 ~/.ssh</code></pre>
                         </li>
                         <li>
                             <strong>Правильность порта:</strong> Убедитесь, что
-                            используете правильный порт (10096).
+                            используете правильный порт (10096 или 10210).
                         </li>
                     </ul>
 
@@ -340,7 +348,7 @@ chmod 700 ~/.ssh</code></pre>
                         подключения используйте флаг <code>-v</code>:
                     </p>
 
-                    <pre><code class="language-bash">ssh -v -p 10096 username@proxy2.cod.phystech.edu</code></pre>
+                    <pre><code class="language-bash">ssh -v -p [10096 или 10210] username@proxy2.cod.phystech.edu</code></pre>
 
                     <p>
                         Для еще более подробной информации используйте
@@ -367,8 +375,9 @@ chmod 700 ~/.ssh</code></pre>
                     >
                         <p>
                             <strong>Если проблемы сохраняются:</strong>
-                            Напишите ошибку в чат сервера с указанием вашего имени пользователя с
-                            описанием проблемы и сообщениями об ошибках.
+                            Напишите ошибку в чат сервера с указанием вашего
+                            имени пользователя с описанием проблемы и
+                            сообщениями об ошибках.
                         </p>
                     </div>
 
