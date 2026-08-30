@@ -70,18 +70,15 @@ MAIN_MENU = ReplyKeyboardMarkup(
     keyboard=[
         [
             KeyboardButton(text="👤 Мой профиль"),
-            KeyboardButton(text="🪪 My Info"),
-        ],
-        [
-            KeyboardButton(text="🖥 Доступные серверы"),
             KeyboardButton(text="🔐 Мои серверы"),
         ],
         [
+            KeyboardButton(text="🖥 Доступные серверы"),
             KeyboardButton(
                 text="➕ Получить доступ", web_app=WebAppInfo(url=SERVER_FORM_URL)
-            )
+            ),
+            KeyboardButton(text="📚 Сайт и правила"),
         ],
-        [KeyboardButton(text="📚 Сайт и правила")],
     ],
     resize_keyboard=True,
 )
@@ -271,20 +268,6 @@ def application_summary(data: dict[str, object]) -> str:
     )
 
 
-def profile_text(profile: Profile) -> str:
-    telegram_username = (
-        f"@{html.escape(profile.telegram_username)}"
-        if profile.telegram_username
-        else "не указан"
-    )
-    return (
-        "<b>Мой профиль</b>\n\n"
-        f"ФИО: {html.escape(profile.full_name)}\n"
-        f"Telegram: {telegram_username}\n"
-        f"Рекомендатель: {html.escape(profile.recommender)}"
-    )
-
-
 def available_servers_text() -> str:
     return (
         "<b>Доступные серверы</b>\n\n"
@@ -333,7 +316,7 @@ def my_info_text(
         else "не указан"
     )
     return (
-        "<b>My Info</b>\n\n"
+        "<b>Мой профиль</b>\n\n"
         f"ФИО: {html.escape(profile.full_name)}\n"
         f"Telegram: {telegram_username}\n"
         f"Рекомендатель: {html.escape(profile.recommender)}\n"
@@ -413,6 +396,18 @@ def build_router(
     credential_ttl: int,
 ) -> Router:
     router = Router()
+
+    async def answer_profile(message: Message, profile: Profile) -> None:
+        registry, accesses = await asyncio.gather(
+            asyncio.to_thread(
+                service.storage.registry_match_for, profile.telegram_user_id
+            ),
+            asyncio.to_thread(service.credentials_for, profile.telegram_user_id),
+        )
+        await message.answer(
+            my_info_text(profile, registry, accesses),
+            reply_markup=profile_keyboard(),
+        )
 
     async def offer_registry_link(message: Message, state: FSMContext) -> bool:
         if message.from_user is None or not message.from_user.username:
@@ -566,9 +561,7 @@ def build_router(
                 service.storage.profile_for, callback.from_user.id
             )
             if profile is not None:
-                await callback.message.answer(
-                    my_info_text(profile, match, []), reply_markup=MAIN_MENU
-                )
+                await answer_profile(callback.message, profile)
 
     @router.callback_query(Form.registry_confirm, F.data.startswith("registry:reject:"))
     async def reject_registry_link(callback: CallbackQuery, state: FSMContext) -> None:
@@ -707,7 +700,9 @@ def build_router(
         )
 
     @router.message(Command("profile"))
+    @router.message(Command("myinfo"))
     @router.message(F.text == "👤 Мой профиль")
+    @router.message(F.text == "🪪 My Info")
     async def my_profile(message: Message, state: FSMContext) -> None:
         if message.from_user is None or message.chat.type != ChatType.PRIVATE:
             return
@@ -723,31 +718,7 @@ def build_router(
                 "Профиль пока не заполнен.", reply_markup=profile_form_menu()
             )
             return
-        await message.answer(profile_text(profile), reply_markup=profile_keyboard())
-
-    @router.message(Command("myinfo"))
-    @router.message(F.text == "🪪 My Info")
-    async def my_info(message: Message, state: FSMContext) -> None:
-        if message.from_user is None or message.chat.type != ChatType.PRIVATE:
-            return
-        await state.clear()
-        profile, registry = await asyncio.gather(
-            asyncio.to_thread(service.storage.profile_for, message.from_user.id),
-            asyncio.to_thread(service.storage.registry_match_for, message.from_user.id),
-        )
-        if registry is None and await offer_registry_link(message, state):
-            return
-        if profile is None:
-            await message.answer(
-                "Профиль пока не заполнен.", reply_markup=profile_form_menu()
-            )
-            return
-        accesses = await asyncio.to_thread(
-            service.credentials_for, message.from_user.id
-        )
-        await message.answer(
-            my_info_text(profile, registry, accesses), reply_markup=MAIN_MENU
-        )
+        await answer_profile(message, profile)
 
     @router.message(F.text == "🖥 Доступные серверы")
     async def available_servers(message: Message, state: FSMContext) -> None:
@@ -807,7 +778,7 @@ def build_router(
             return
         await asyncio.to_thread(service.storage.save_profile, updated)
         await state.clear()
-        await message.answer(profile_text(updated), reply_markup=MAIN_MENU)
+        await answer_profile(message, updated)
 
     @router.message(Form.edit_recommender, F.text)
     async def save_recommender(message: Message, state: FSMContext) -> None:
@@ -836,7 +807,7 @@ def build_router(
             return
         await asyncio.to_thread(service.storage.save_profile, updated)
         await state.clear()
-        await message.answer(profile_text(updated), reply_markup=MAIN_MENU)
+        await answer_profile(message, updated)
 
     return router
 
@@ -861,7 +832,7 @@ async def run(settings: Settings) -> None:
         [
             BotCommand(command="start", description="Открыть главное меню"),
             BotCommand(command="menu", description="Обновить главное меню"),
-            BotCommand(command="myinfo", description="Показать My Info"),
+            BotCommand(command="myinfo", description="Показать профиль"),
             BotCommand(command="profile", description="Показать профиль"),
             BotCommand(command="servers", description="Показать мои серверы"),
             BotCommand(command="cancel", description="Отменить текущее действие"),

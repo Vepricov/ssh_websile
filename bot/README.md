@@ -7,8 +7,8 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
 
 ## User flow
 
-1. `/start` replaces any cached legacy keyboard with the current menu: profile,
-   `My Info`, available servers, saved servers, access request, and rules.
+1. `/start` replaces any cached legacy keyboard with the current five-button
+   menu: profile, available servers, saved servers, access request, and rules.
 2. On first contact, the bot searches the legacy Google Sheet by normalized
    Telegram username. One-tap confirmation is offered only when the row already
    contains the same numeric Telegram user ID. Legacy username-only rows never
@@ -17,8 +17,9 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
    user ID. Duplicate rows are merged into a set of registered services.
 4. Both forms keep a per-user draft in Telegram CloudStorage. Saved profiles can
    also be edited one field at a time in chat without re-entering other fields.
-5. `My Info` combines profile, Unix username, and registered services in one
-   message. `Мои серверы` additionally shows credentials created by the bot.
+5. `Мой профиль` combines profile, Unix username, and registered services in one
+   message. The legacy `/myinfo` command opens the same view. `Мои серверы`
+   additionally shows credentials created by the bot.
 6. The user opens `Получить доступ`, selects managed servers, and enters only
    the Unix username, access term, and optional activity.
 7. The bot validates the untrusted Web App payload and shows the request

@@ -4,7 +4,6 @@ from server_access_bot.app import (
     available_servers_text,
     confirmation_keyboard,
     my_info_text,
-    profile_text,
     registry_confirmation_keyboard,
     registry_confirmation_text,
     registry_link_is_trusted,
@@ -140,12 +139,10 @@ def test_main_menu_exposes_profile_catalog_info_and_access_actions() -> None:
     labels = [[button.text for button in row] for row in MAIN_MENU.keyboard]
 
     assert labels == [
-        ["👤 Мой профиль", "🪪 My Info"],
-        ["🖥 Доступные серверы", "🔐 Мои серверы"],
-        ["➕ Получить доступ"],
-        ["📚 Сайт и правила"],
+        ["👤 Мой профиль", "🔐 Мои серверы"],
+        ["🖥 Доступные серверы", "➕ Получить доступ", "📚 Сайт и правила"],
     ]
-    access_button = MAIN_MENU.keyboard[2][0]
+    access_button = MAIN_MENU.keyboard[1][1]
     assert access_button.web_app is not None
     assert access_button.web_app.url == (
         "https://vepricov.github.io/ssh_websile/server-form.html"
@@ -188,16 +185,14 @@ def test_my_info_combines_profile_and_registered_services() -> None:
     text = my_info_text(profile, registry_match(), [])
 
     assert "Alice &lt;Smith&gt;" in text
+    assert "<b>Мой профиль</b>" in text
     assert "@alice_tg" in text
     assert "Ник на серверах: <code>alice</code>" in text
     assert "Новый (BrainLab)" in text
     assert "Яндекс-сервер" in text
 
 
-def test_profile_and_available_server_messages_are_complete() -> None:
-    profile = Profile(101, "alice_tg", "Alice Smith", "Bob Jones")
-
-    assert "Alice Smith" in profile_text(profile)
+def test_available_server_message_is_complete() -> None:
     catalog = available_servers_text()
     assert "Старый (mipt)" in catalog
     assert "Новый (BrainLab)" in catalog
