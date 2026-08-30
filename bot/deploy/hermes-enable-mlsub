@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "usage: $0 <username>" >&2
+    exit 64
+fi
+
+USERNAME=$1
+GROUP=mlsub-students
+MLSUB=/usr/local/bin/mlsub
+
+if [[ ! "$USERNAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+    echo "invalid username" >&2
+    exit 65
+fi
+if ! getent passwd "$USERNAME" >/dev/null; then
+    echo "brain_lab account does not exist" >&2
+    exit 66
+fi
+if ! getent group "$GROUP" >/dev/null || [ ! -x "$MLSUB" ]; then
+    echo "mlsub gateway is not ready" >&2
+    exit 69
+fi
+
+if id -nG "$USERNAME" | tr ' ' '\n' | grep -qx "$GROUP"; then
+    STATUS=EXISTS
+else
+    usermod --append --groups "$GROUP" "$USERNAME"
+    STATUS=CREATED
+fi
+
+echo "HERMES_STATUS=$STATUS"
+echo "Username: $USERNAME"
+echo "Подключение: ssh -p 10210 $USERNAME@proxy2.cod.phystech.edu"
+echo "Ссылка на тг группу сервера: https://t.me/+s4xcvoGVbn4zZGZi"

@@ -1,190 +1,69 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SSH-сервер МФТИ - Главная</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="Каталог GPU-серверов и вычислительных сервисов BRAIn Lab">
+    <title>BRAIn Lab Compute</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='20' y='40' width='160' height='120' rx='8' fill='%231a365d' stroke='%2338a169' stroke-width='2'/%3E%3Crect x='30' y='50' width='140' height='20' rx='4' fill='%2338a169'/%3E%3Crect x='30' y='80' width='140' height='20' rx='4' fill='%232d3748'/%3E%3Crect x='30' y='110' width='140' height='20' rx='4' fill='%232d3748'/%3E%3Crect x='30' y='140' width='140' height='10' rx='2' fill='%2368d391'/%3E%3Ccircle cx='160' cy='60' r='4' fill='%2368d391'/%3E%3Ccircle cx='150' cy='60' r='4' fill='%23f56565'/%3E%3C/svg%3E">
 </head>
-<body>
-    <nav class="navbar">
-        <div class="nav-container">
-            <div class="nav-logo">
-                <h2>SSH-сервер ИИИ по направлению оптимизация</h2>
-            </div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="index.html" class="nav-link active">Главная</a>
-                </li>
-                <li class="nav-item">
-                    <a href="rules.html" class="nav-link">Правила</a>
-                </li>
-                <li class="nav-item">
-                    <a href="ssh.html" class="nav-link">SSH</a>
-                </li>
-                <li class="nav-item">
-                    <a href="python.html" class="nav-link">Python</a>
-                </li>
-                <li class="nav-item">
-                    <a href="linux.html" class="nav-link">Linux</a>
-                </li>
-                <li class="nav-item">
-                    <a href="tmux.html" class="nav-link">Tmux</a>
-                </li>
-            </ul>
-            <div class="hamburger">
-                <span class="bar"></span>
-                <span class="bar"></span>
-                <span class="bar"></span>
-            </div>
+<body class="ops-site">
+    <nav class="ops-nav" aria-label="Основная навигация">
+        <a class="ops-brand" href="index.html"><span class="brand-mark">B/</span>BRAIn Lab Compute</a>
+        <div class="ops-links">
+            <a class="active" href="index.html">Обзор</a>
+            <a href="servers.html">Ресурсы</a>
+            <a href="rules.html">Правила</a>
+            <a href="tools.html">Инструменты</a>
         </div>
+        <a class="bot-link" href="https://t.me/brainlab_server_access_bot">Открыть бота ↗</a>
     </nav>
 
-    <main class="main-content">
-        <section class="hero">
-            <div class="container">
-                <div class="hero-content">
-                    <h1 class="hero-title">Добро пожаловать на SSH-сервер ИИИ по направлению оптимизация</h1>
-                    <p class="hero-description">
-                        Этот ресурс предназначен для студентов и исследователей, которым необходимы
-                        вычислительные мощности для работы с проектами, требующими GPU. Здесь вы найдете
-                        всю необходимую информацию для эффективного и безопасного использования сервера.
-                    </p>
-                    <div class="hero-buttons">
-                        <a href="rules.html" class="btn btn-primary">Правила пользования</a>
-                        <a href="ssh.html" class="btn btn-secondary">Начать работу</a>
-                    </div>
+    <main>
+        <section class="ops-hero">
+            <div class="hero-copy">
+                <p class="ops-eyebrow"><span></span> COMPUTE ROUTER / BRAIn LAB</p>
+                <h1>Выберите ресурс.<br><i>Запустите работу.</i></h1>
+                <p class="hero-lead">Один каталог для физических GPU-серверов, облачной очереди и внешних ресурсов. У каждого пути свои правила доступа.</p>
+                <div class="hero-actions">
+                    <a class="ops-button primary" href="servers.html">Смотреть ресурсы</a>
+                    <a class="ops-button" href="https://t.me/brainlab_server_access_bot">Получить доступ в Telegram</a>
                 </div>
-                <div class="hero-visual">
-                    <div class="server-icon">
-                        <svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <rect x="20" y="40" width="160" height="120" rx="8" fill="#1a365d" stroke="#38a169" stroke-width="2"/>
-                            <rect x="30" y="50" width="140" height="20" rx="4" fill="#38a169"/>
-                            <rect x="30" y="80" width="140" height="20" rx="4" fill="#2d3748"/>
-                            <rect x="30" y="110" width="140" height="20" rx="4" fill="#2d3748"/>
-                            <rect x="30" y="140" width="140" height="10" rx="2" fill="#68d391"/>
-                            <circle cx="160" cy="60" r="4" fill="#68d391"/>
-                            <circle cx="150" cy="60" r="4" fill="#f56565"/>
-                        </svg>
-                    </div>
-                </div>
+            </div>
+            <div class="router-panel" aria-label="Порядок выбора вычислений">
+                <div class="panel-head"><span>ROUTING POLICY</span><b>LIVE</b></div>
+                <ol class="route-list">
+                    <li><span>01</span><div><b>Проверьте прямые GPU</b><small>shkodnik_opt · brain_lab · vv_h200</small></div></li>
+                    <li><span>02</span><div><b>Нет подходящей карты?</b><small>Отправьте задачу в mlsub / Cloud.ru</small></div></li>
+                    <li><span>03</span><div><b>Внешний ресурс</b><small>Следуйте контакту и правилам владельца</small></div></li>
+                </ol>
             </div>
         </section>
 
-        <section class="important-notice">
-            <div class="container">
-                <div class="notice-card">
-                    <div class="notice-header">
-                        <h3>Важная информация</h3>
-                    </div>
-                    <p>Для получения доступа к серверу и создания учетной записи, пожалуйста, ознакомьтесь с правилами и напишите Telegram-боту.</p>
-                    <div class="registration-options">
-                        <div class="registration-option">
-                            <h4>Правила пользования</h4>
-                            <p>Перед регистрацией обязательно ознакомьтесь с правилами использования сервера.</p>
-                            <a href="rules.html" class="btn btn-primary btn-sm">Читать правила</a>
-                        </div>
-                        <div class="registration-option">
-                            <h4>Telegram-бот</h4>
-                            <p>Для получения доступа к серверу откройте бота и нажмите Start:</p>
-                            <div class="form-link-placeholder">
-                                <p><strong><a href="https://t.me/brainlab_server_access_bot" target="_blank">@brainlab_server_access_bot</a></strong></p>
-                                <small>Бот для создания учетной записи на сервере</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        <section class="resource-strip" aria-labelledby="resources-title">
+            <div class="section-heading">
+                <div><p class="ops-eyebrow">RESOURCE MAP</p><h2 id="resources-title">Что доступно</h2></div>
+                <a href="servers.html">Полный каталог →</a>
+            </div>
+            <div class="resource-grid compact">
+                <a class="resource-card" href="servers.html#shkodnik-opt"><span class="resource-type">SSH · MIPT</span><h3>shkodnik_opt</h3><p>A100 40/80 GB и RTX 2080 Ti</p><b>8 GPU</b></a>
+                <a class="resource-card" href="servers.html#brain-lab"><span class="resource-type">SSH · BRAINLAB</span><h3>brain_lab</h3><p>Основной новый сервер лаборатории</p><b>4 × A100 80 GB</b></a>
+                <a class="resource-card accent" href="servers.html#vv-h200"><span class="resource-type">SSH · VPN</span><h3>vv_h200</h3><p>Подключение через do-vpn / ProxyJump</p><b>8 × H200</b></a>
+                <a class="resource-card cloud" href="servers.html#mlsub"><span class="resource-type">QUEUE · CLOUD.RU</span><h3>mlsub</h3><p>Отдельный сервис очереди через BrainLab</p><b>до 8 задач</b></a>
+                <a class="resource-card external" href="servers.html#yandex"><span class="resource-type">EXTERNAL</span><h3>Яндекс</h3><p>Доступ выдаёт другая команда</p><b>@aloeme</b></a>
+                <article class="resource-card soon" aria-disabled="true"><span class="resource-type">TESTING</span><h3>Alibaba Ascend</h3><p>Платформа проходит внутреннюю проверку</p><b>скоро</b></article>
             </div>
         </section>
 
-        <section class="sections-overview">
-            <div class="container">
-                <h2 class="section-title">Основные разделы сайта</h2>
-                <div class="cards-grid">
-                    <div class="card">
-                        <div class="card-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M9 12l2 2 4-4"/>
-                                <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
-                                <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
-                                <path d="M3 12h6m6 0h6"/>
-                            </svg>
-                        </div>
-                        <h3>Правила пользования</h3>
-                        <p>Обязательно к прочтению для всех пользователей. Содержит информацию о допустимом использовании ресурсов, особенно CPU и GPU.</p>
-                        <a href="rules.html" class="card-link">Читать правила →</a>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                                <line x1="8" y1="21" x2="16" y2="21"/>
-                                <line x1="12" y1="17" x2="12" y2="21"/>
-                            </svg>
-                        </div>
-                        <h3>SSH Подключение</h3>
-                        <p>Подробное руководство по подключению к серверу, включая генерацию SSH-ключей и настройку SSH-конфигурации.</p>
-                        <a href="ssh.html" class="card-link">Настроить SSH →</a>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/>
-                                <line x1="12" y1="22" x2="12" y2="15.5"/>
-                                <polyline points="7,6.5 12,9.5 17,6.5"/>
-                                <polyline points="7,6.5 2,9.5"/>
-                                <polyline points="17,6.5 22,9.5"/>
-                            </svg>
-                        </div>
-                        <h3>Python и Anaconda</h3>
-                        <p>Инструкции по установке и использованию Anaconda для управления Python-окружениями и запуску Jupyter Notebook.</p>
-                        <a href="python.html" class="card-link">Настроить Python →</a>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                <circle cx="9" cy="9" r="2"/>
-                                <path d="M21 15.5c-1-1.4-3-2.5-5-2.5"/>
-                                <path d="M3 15.5c1-1.4 3-2.5 5-2.5"/>
-                                <line x1="8" y1="21" x2="16" y2="21"/>
-                                <line x1="12" y1="17" x2="12" y2="21"/>
-                            </svg>
-                        </div>
-                        <h3>Linux команды</h3>
-                        <p>Справочник полезных команд для мониторинга системы, работы с файлами, использования tmux и других повседневных задач.</p>
-                        <a href="linux.html" class="card-link">Изучить команды →</a>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>
-                                <line x1="2" y1="7" x2="22" y2="7"/>
-                                <line x1="12" y1="2" x2="12" y2="22"/>
-                                <circle cx="5" cy="5" r="1"/>
-                                <circle cx="19" cy="5" r="1"/>
-                                <circle cx="5" cy="19" r="1"/>
-                                <circle cx="19" cy="19" r="1"/>
-                            </svg>
-                        </div>
-                        <h3>Tmux</h3>
-                        <p>Руководство по использованию Tmux - мультиплексора терминалов, позволяющего работать с несколькими сессиями одновременно.</p>
-                        <a href="tmux.html" class="card-link">Изучить Tmux →</a>
-                    </div>
-                </div>
-            </div>
+        <section class="onboarding-band">
+            <div><p class="ops-eyebrow">ACCESS CONTROL</p><h2>Бот хранит доступы за вас</h2></div>
+            <p>Заполните профиль один раз, выберите ресурс и затем открывайте логин, подключение и сохранённый пароль в разделе «Мои серверы».</p>
+            <a class="ops-button primary" href="https://t.me/brainlab_server_access_bot">Запустить @brainlab_server_access_bot</a>
         </section>
     </main>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-    <script src="script.js"></script>
+    <footer class="ops-footer"><span>BRAIn Lab Compute</span><span>Документация без паролей и API-ключей</span><a href="llms.txt">Для агентов</a></footer>
 </body>
 </html>

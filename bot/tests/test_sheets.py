@@ -68,6 +68,23 @@ def test_application_maps_to_existing_form_columns_plus_bot_metadata() -> None:
     ]
 
 
+def test_mlsub_has_a_distinct_sheet_label() -> None:
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="distributed training",
+        servers=("mlsub",),
+    )
+
+    values = application_values(application, "active")
+
+    assert values[6] == "mlsub / Cloud.ru — отдельный сервис через BrainLab"
+
+
 def test_registry_rows_for_same_identity_are_merged_by_server() -> None:
     rows = [
         registry_row(

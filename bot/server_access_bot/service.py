@@ -20,7 +20,7 @@ class ValidationError(ValueError):
 
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 TELEGRAM_RE = re.compile(r"^@[A-Za-z0-9_]{3,}$")
-ALLOWED_HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200"})
+ALLOWED_HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200", "mlsub"})
 MOSCOW_TIME = ZoneInfo("Europe/Moscow")
 
 
@@ -100,9 +100,12 @@ class AccessService:
                 f"Ваш серверный ник уже зафиксирован: {current_username}. "
                 "Для его смены обратитесь к администратору."
             )
+        requested_hosts = list(application.servers)
+        if "mlsub" in requested_hosts and "brain_lab" not in requested_hosts:
+            requested_hosts.insert(0, "brain_lab")
         missing_hosts = [
             host
-            for host in application.servers
+            for host in requested_hosts
             if not self.storage.has_access(application.telegram_user_id, host)
             and not self.storage.has_registered_service(
                 application.telegram_user_id, host

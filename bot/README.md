@@ -20,20 +20,26 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
 5. `Мой профиль` combines profile, Unix username, and registered services in one
    message. The legacy `/myinfo` command opens the same view. `Мои серверы`
    additionally shows credentials created by the bot.
-6. The user opens `Получить доступ`, selects managed servers, and enters only
-   the Unix username, access term, and optional activity.
-7. The bot validates the untrusted Web App payload and shows the request
-   summary in chat. After confirmation, it checks the username on every
-   requested server.
-8. The bot provisions the accounts and sends the credentials directly to the
-   same Telegram numeric user ID.
+6. The user opens `Получить доступ`, selects managed servers or the separate
+   `mlsub / Cloud.ru` service, and enters only the Unix username, access term,
+   and optional activity.
+7. The bot validates the untrusted Web App payload. Known registry users can
+   add resources immediately; a new identity creates a durable request that a
+   configured admin approves or rejects with one Telegram button.
+8. After approval, the bot provisions the accounts and sends the credentials
+   directly to the applicant's immutable Telegram numeric user ID. Requesting
+   `mlsub` first ensures a BrainLab account and then enables the protected
+   `mlsub-students` group through a separate root-owned helper.
 9. `Мои серверы` always lists the complete catalog. Imported resources show
    the Unix username but explicitly state that their old password is not stored.
    The Yandex server links to `@aloeme` and is never provisioned by this bot.
+   Link previews are disabled, so Telegram does not attach the contact card.
 10. Credential messages are protected from forwarding and deleted after five
    minutes.
 11. A later request only provisions newly selected servers. Existing passwords
    are never rotated.
+12. `/demo` is restricted to `ACCESS_BOT_DEMO_USER_IDS` and exercises both
+    forms with fake credentials without changing SQLite, Sheets, or Unix users.
 
 ## Local verification
 

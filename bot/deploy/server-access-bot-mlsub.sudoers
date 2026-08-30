@@ -1,0 +1,1 @@
+shkodnik1917 ALL=(root) NOPASSWD: /usr/local/sbin/hermes-enable-mlsub *

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="Подробные инструкции по серверам и вычислительным сервисам BRAIn Lab">
+    <title>Ресурсы — BRAIn Lab Compute</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="ops-site">
+    <nav class="ops-nav"><a class="ops-brand" href="index.html"><span class="brand-mark">B/</span>BRAIn Lab Compute</a><div class="ops-links"><a href="index.html">Обзор</a><a class="active" href="servers.html">Ресурсы</a><a href="rules.html">Правила</a><a href="tools.html">Инструменты</a></div><a class="bot-link" href="https://t.me/brainlab_server_access_bot">Открыть бота ↗</a></nav>
+    <main class="catalog-shell">
+        <header class="catalog-head"><p class="ops-eyebrow"><span></span> RESOURCE DIRECTORY</p><h1>Серверы и сервисы</h1><p>От прямого SSH до управляемой облачной очереди. Выбирайте по задаче, а не только по названию GPU.</p></header>
+        <aside class="catalog-index" aria-label="Ресурсы"><a href="#shkodnik-opt">01 shkodnik_opt</a><a href="#brain-lab">02 brain_lab</a><a href="#vv-h200">03 vv_h200</a><a href="#mlsub">04 mlsub</a><a href="#yandex">05 Яндекс</a><span>06 Alibaba Ascend · тестируем</span></aside>
+
+        <section class="resource-detail" id="shkodnik-opt">
+            <div class="detail-number">01</div><div class="detail-main"><div class="detail-title"><div><span class="resource-type">MANAGED SSH · MIPT</span><h2>shkodnik_opt</h2></div><b class="status ready">доступен</b></div>
+            <p class="detail-intro">Основной смешанный GPU-сервер для экспериментов, где важен выбор карты по объёму памяти.</p>
+            <div class="spec-grid"><div><small>GPU</small><b>2 × A100 80 GB<br>4 × A100 40 GB<br>2 × RTX 2080 Ti</b></div><div><small>Вход</small><code>ssh shkodnik_opt</code></div><div><small>Доступ</small><b>через Telegram-бота</b></div></div>
+            <div class="warning"><b>Главная грабля</b><p>Перед PyTorch-запуском задавайте <code>CUDA_DEVICE_ORDER=PCI_BUS_ID</code>. Иначе CUDA-индексы могут не совпасть с <code>nvidia-smi</code>.</p></div>
+            <a class="detail-action" href="https://t.me/brainlab_server_access_bot">Запросить доступ →</a></div>
+        </section>
+
+        <section class="resource-detail" id="brain-lab">
+            <div class="detail-number">02</div><div class="detail-main"><div class="detail-title"><div><span class="resource-type">MANAGED SSH · BRAINLAB</span><h2>brain_lab</h2></div><b class="status ready">доступен</b></div>
+            <p class="detail-intro">Новый сервер лаборатории с четырьмя A100. Также служит точкой входа к сервису mlsub, но сам mlsub управляется отдельно.</p>
+            <div class="spec-grid"><div><small>GPU</small><b>4 × A100 80 GB</b></div><div><small>Вход</small><code>ssh brain_lab</code></div><div><small>Резервный вход</small><code>ssh brain_lab_vpn</code></div></div>
+            <div class="warning neutral"><b>Если proxy2 не отвечает</b><p>Используйте алиас <code>brain_lab_vpn</code>. Он проходит через закрытый обратный туннель на do-vpn.</p></div>
+            <a class="detail-action" href="https://t.me/brainlab_server_access_bot">Запросить доступ →</a></div>
+        </section>
+
+        <section class="resource-detail highlight" id="vv-h200">
+            <div class="detail-number">03</div><div class="detail-main"><div class="detail-title"><div><span class="resource-type">MANAGED SSH · RESTRICTED NETWORK</span><h2>vv_h200</h2></div><b class="status vpn">нужен VPN</b></div>
+            <p class="detail-intro">Восемь H200 для крупных запусков. Внутренний адрес недоступен напрямую из обычной внешней сети.</p>
+            <div class="spec-grid"><div><small>GPU</small><b>8 × H200</b></div><div><small>Рекомендуемый вход</small><code>ssh vv_h200</code></div><div><small>Маршрут</small><b>Mac → do-vpn → VV</b></div></div>
+            <div class="warning"><b>Перед первым входом</b><p>Получите корпоративный VPN. Рабочая конфигурация использует <code>ProxyJump do-vpn</code>; туннель do-vpn → VV поддерживается systemd.</p></div>
+            <a class="detail-action" href="https://t.me/brainlab_server_access_bot">Запросить серверный доступ →</a></div>
+        </section>
+
+        <section class="resource-detail cloud-detail" id="mlsub">
+            <div class="detail-number">04</div><div class="detail-main"><div class="detail-title"><div><span class="resource-type">COMPUTE SERVICE · CLOUD.RU</span><h2>mlsub</h2></div><b class="status queue">очередь</b></div>
+            <p class="detail-intro">Самостоятельный сервис запуска задач в Cloud.ru. Это не SSH-сервер: бот обеспечивает вход на BrainLab, а затем отдельно включает пользователя в <code>mlsub-students</code>.</p>
+            <div class="spec-grid"><div><small>Исполнение</small><b>H100 в общей PAYG-очереди</b></div><div><small>Точка входа</small><code>ssh brain_lab</code></div><div><small>Аккаунт Cloud.ru</small><b>не нужен</b></div></div>
+            <pre class="ops-code"><code>mlsub run --repo https://github.com/org/repo --entry train.py --gpus 1 --dry-run
+mlsub run --repo https://github.com/org/repo --entry train.py --gpus 1
+mlsub list
+mlsub status &lt;job&gt;
+mlsub logs &lt;job&gt;
+mlsub kill &lt;job&gt;</code></pre>
+            <div class="pitfalls"><h3>Как планировать</h3><ul><li>Сначала проверяйте свободные карты на <code>shkodnik_opt</code>, <code>brain_lab</code> и <code>vv_h200</code>.</li><li>1–2 H100 обычно получить проще; вместо одной задачи на 4 GPU лучше две задачи по 2 GPU.</li><li>Кеши и результаты сохраняйте внутри <code>/home/jovyan</code>; корень контейнера и <code>/tmp</code> эфемерны.</li><li>Упавшая задача может не показать stderr. Пишите вывод в файл на NFS и выводите tail в конце команды.</li></ul></div>
+            <a class="detail-action" href="https://t.me/brainlab_server_access_bot">Запросить mlsub отдельно →</a></div>
+        </section>
+
+        <section class="resource-detail external-detail" id="yandex">
+            <div class="detail-number">05</div><div class="detail-main"><div class="detail-title"><div><span class="resource-type">EXTERNAL RESOURCE</span><h2>Яндекс-сервер</h2></div><b class="status external-status">другая команда</b></div>
+            <p class="detail-intro">Ресурс отображается в общем каталоге, но этот бот не создаёт и не хранит доступ.</p>
+            <div class="contact-line"><span>Для получения доступа напишите</span><a href="https://t.me/aloeme">@aloeme</a></div></div>
+        </section>
+
+        <section class="resource-detail soon-detail" id="alibaba-ascend" aria-disabled="true">
+            <div class="detail-number">06</div><div class="detail-main"><div class="detail-title"><div><span class="resource-type">PREVIEW · TESTING</span><h2>Alibaba Ascend</h2></div><b class="status testing">тестируем</b></div><p class="detail-intro">Платформа проходит внутреннюю проверку. Модель оборудования, способ подключения и правила выдачи доступа пока не зафиксированы.</p><div class="locked-action">Заявки откроются после завершения тестирования</div></div>
+        </section>
+    </main>
+    <footer class="ops-footer"><span>BRAIn Lab Compute</span><span>Актуализировано по внутреннему серверному справочнику</span><a href="llms.txt">Для агентов</a></footer>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -71,7 +71,7 @@ def parse_web_app_data(user: User, raw_data: str) -> Profile | ServerRequest:
         not isinstance(host, str) for host in servers
     ):
         raise _invalid_payload()
-    if len(servers) > 3 or len(servers) != len(set(servers)):
+    if len(servers) > 4 or len(servers) != len(set(servers)):
         raise _invalid_payload()
     return ServerRequest(
         telegram_user_id=user.id,

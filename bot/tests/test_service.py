@@ -268,6 +268,51 @@ def test_user_can_provision_and_read_own_credentials(tmp_path: Path) -> None:
     assert b"generated-secret" not in (tmp_path / "bot.sqlite3").read_bytes()
 
 
+def test_imported_profile_can_store_encrypted_per_server_credentials(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "bot.sqlite3"
+    storage = Storage(database, b"0" * 32)
+    storage.save_profile(Profile(101, "alice_tg", "Alice Smith", "Bob Jones"))
+
+    storage.save_access(
+        101,
+        ProvisionedAccess(
+            host="shkodnik_opt",
+            username="alice-old",
+            password="legacy-secret",
+            connection="ssh old",
+            group_url="",
+            created=False,
+        ),
+    )
+
+    [access] = storage.credentials_for(101)
+    assert access.username == "alice-old"
+    assert access.password == "legacy-secret"
+    assert b"legacy-secret" not in database.read_bytes()
+
+
+def test_pending_application_can_only_be_claimed_once(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="fine-tuning",
+        servers=("brain_lab",),
+    )
+
+    storage.save_pending_request("request-123", application)
+
+    assert storage.claim_pending_request("request-123") == application
+    assert storage.claim_pending_request("request-123") is None
+    storage.resolve_pending_request("request-123", "approved")
+
+
 def test_invalid_unix_username_is_rejected_before_provisioning(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
     provisioner = FakeProvisioner()
@@ -315,6 +360,30 @@ def test_repeat_request_only_provisions_new_servers(tmp_path: Path) -> None:
         ("brain_lab", "alice"),
         ("shkodnik_opt", "alice"),
     ]
+
+
+def test_mlsub_is_a_separate_service_but_ensures_brain_lab_access(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    provisioner = FakeProvisioner()
+    service = AccessService(storage, provisioner)
+
+    result = service.submit(
+        Application(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            full_name="Alice Smith",
+            server_username="alice",
+            access_term="бессрочно",
+            recommender="Bob Jones",
+            activity="distributed training",
+            servers=("mlsub",),
+        )
+    )
+
+    assert [access.host for access in result] == ["brain_lab", "mlsub"]
+    assert provisioner.calls == [("brain_lab", "alice"), ("mlsub", "alice")]
 
 
 def test_existing_user_cannot_switch_unix_username(tmp_path: Path) -> None:

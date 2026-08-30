@@ -22,12 +22,14 @@ SERVER_LABELS = {
     "shkodnik_opt": "Старый (mipt) -- x4 RTX 2080 11гб, x2 A100 40гб, x2 A100 80гб",
     "brain_lab": "Новый (BrainLab) -- x4 A100 80гб",
     "vv_h200": "H200 (VB) - x8 H200 140гб",
+    "mlsub": "mlsub / Cloud.ru — отдельный сервис через BrainLab",
 }
 REGISTRY_SERVERS = (
     ("shkodnik_opt", "Старый (mipt)"),
     ("brain_lab", "Новый (BrainLab)"),
     ("vv_h200", "H200"),
     ("yandex", "Яндекс"),
+    ("mlsub", "mlsub / Cloud.ru"),
 )
 
 

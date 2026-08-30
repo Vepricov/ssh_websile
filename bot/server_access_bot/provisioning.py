@@ -9,7 +9,7 @@ class ProvisioningError(RuntimeError):
     pass
 
 
-HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200"})
+HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200", "mlsub"})
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
@@ -23,6 +23,8 @@ class SshProvisioner:
     def username_available(self, host: str, username: str) -> bool:
         if host not in HOSTS or not USERNAME_RE.fullmatch(username):
             raise ProvisioningError("invalid provisioning target")
+        if host == "mlsub":
+            return True
         completed = self.run(
             [
                 "ssh",
@@ -51,16 +53,22 @@ class SshProvisioner:
     def provision(self, host: str, username: str) -> ProvisionedAccess:
         if host not in HOSTS or not USERNAME_RE.fullmatch(username):
             raise ProvisioningError("invalid provisioning target")
+        target_host = "brain_lab" if host == "mlsub" else host
+        helper = (
+            "/usr/local/sbin/hermes-enable-mlsub"
+            if host == "mlsub"
+            else "/usr/local/sbin/hermes-add-user"
+        )
         command = [
             "ssh",
             "-o",
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=10",
-            host,
+            target_host,
             "sudo",
             "-n",
-            "/usr/local/sbin/hermes-add-user",
+            helper,
             username,
         ]
         completed = self.run(
@@ -87,15 +95,10 @@ class SshProvisioner:
             if separator:
                 fields[key] = value
         created = lines[0] == "HERMES_STATUS=CREATED"
-        if created and not all(
-            fields.get(key)
-            for key in (
-                "Username",
-                "Password",
-                "Подключение",
-                "Ссылка на тг группу сервера",
-            )
-        ):
+        required = ["Username", "Подключение", "Ссылка на тг группу сервера"]
+        if host != "mlsub":
+            required.append("Password")
+        if created and not all(fields.get(key) for key in required):
             raise ProvisioningError(f"{host}: provisioning helper omitted credentials")
         return ProvisionedAccess(
             host=host,

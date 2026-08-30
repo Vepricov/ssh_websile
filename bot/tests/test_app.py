@@ -1,7 +1,12 @@
 from server_access_bot.app import (
+    BOT_DEFAULTS,
     MAIN_MENU,
     application_from_request,
+    available_servers_keyboard,
     available_servers_text,
+    admin_approval_keyboard,
+    demo_accesses,
+    onboarding_text,
     confirmation_keyboard,
     my_info_text,
     registry_confirmation_keyboard,
@@ -117,6 +122,13 @@ def test_confirmation_buttons_are_bound_to_one_request() -> None:
     assert keyboard.inline_keyboard[1][0].callback_data == ("form:cancel:request-123")
 
 
+def test_admin_approval_is_bound_to_a_durable_request() -> None:
+    keyboard = admin_approval_keyboard("request-123")
+
+    assert keyboard.inline_keyboard[0][0].callback_data == "admin:approve:request-123"
+    assert keyboard.inline_keyboard[0][1].callback_data == "admin:reject:request-123"
+
+
 def test_untrusted_group_url_is_not_rendered_as_a_link() -> None:
     text = server_dashboard_text(
         [
@@ -194,7 +206,36 @@ def test_my_info_combines_profile_and_registered_services() -> None:
 
 def test_available_server_message_is_complete() -> None:
     catalog = available_servers_text()
+    keyboard = available_servers_keyboard()
+
     assert "Старый (mipt)" in catalog
     assert "Новый (BrainLab)" in catalog
     assert "H200 (VV)" in catalog
+    assert "mlsub / Cloud.ru" in catalog
+    assert "отдельный вычислительный сервис" in catalog
+    assert "Alibaba Ascend" in catalog
+    assert "тестируем" in catalog
     assert '<a href="https://t.me/aloeme">@aloeme</a>' in catalog
+    assert BOT_DEFAULTS.link_preview_is_disabled is True
+    labels = [button.text for row in keyboard.inline_keyboard for button in row]
+    assert "☁️ mlsub / Cloud.ru" in labels
+    assert "◌ Alibaba Ascend · тестируем" in labels
+
+
+def test_onboarding_explains_the_main_user_flow() -> None:
+    text = onboarding_text()
+
+    assert "Мой профиль" in text
+    assert "Доступные серверы" in text
+    assert "Получить доступ" in text
+    assert "Мои серверы" in text
+    assert "пароли" in text
+
+
+def test_demo_accesses_are_clearly_fake_and_include_mlsub_dependency() -> None:
+    accesses = demo_accesses("alice", ("mlsub", "vv_h200"))
+
+    assert [access.host for access in accesses] == ["brain_lab", "mlsub", "vv_h200"]
+    assert accesses[0].password == "DEMO-PASSWORD"
+    assert accesses[1].password is None
+    assert all(access.created is False for access in accesses)

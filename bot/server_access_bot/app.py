@@ -56,7 +56,16 @@ SERVER_NAMES = {
     "brain_lab": "Новый (BrainLab)",
     "vv_h200": "H200 (VV)",
 }
-ALL_SERVICE_NAMES = {**SERVER_NAMES, "yandex": "Яндекс-сервер"}
+SERVICE_NAMES = {"mlsub": "mlsub / Cloud.ru"}
+ALL_SERVICE_NAMES = {
+    **SERVER_NAMES,
+    **SERVICE_NAMES,
+    "yandex": "Яндекс-сервер",
+}
+BOT_DEFAULTS = DefaultBotProperties(
+    parse_mode=ParseMode.HTML,
+    link_preview_is_disabled=True,
+)
 
 
 class Form(StatesGroup):
@@ -151,6 +160,21 @@ def confirmation_keyboard(request_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def admin_approval_keyboard(request_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Одобрить", callback_data=f"admin:approve:{request_id}"
+                ),
+                InlineKeyboardButton(
+                    text="Отклонить", callback_data=f"admin:reject:{request_id}"
+                ),
+            ]
+        ]
+    )
+
+
 def server_dashboard_keyboard(
     accesses: Sequence[ProvisionedAccess],
     registered_services: Sequence[str] = (),
@@ -158,22 +182,38 @@ def server_dashboard_keyboard(
     existing = {access.host for access in accesses} | set(registered_services)
     rows = [
         [InlineKeyboardButton(text=f"➕ {name}", callback_data=f"servers:add:{host}")]
-        for host, name in SERVER_NAMES.items()
+        for host, name in {**SERVER_NAMES, **SERVICE_NAMES}.items()
         if host not in existing
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 def server_request_menu(host: str) -> ReplyKeyboardMarkup:
-    if host not in SERVER_NAMES:
+    if host not in {**SERVER_NAMES, **SERVICE_NAMES}:
         raise ValueError(f"unknown server: {host}")
     url = f"{SERVER_FORM_URL}?{urlencode({'server': host})}"
     return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(
-                    text=f"Открыть заявку: {SERVER_NAMES[host]}",
+                    text=f"Открыть заявку: {ALL_SERVICE_NAMES[host]}",
                     web_app=WebAppInfo(url=url),
+                )
+            ],
+            [KeyboardButton(text="Главное меню")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def demo_server_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(
+                    text="Открыть demo-форму серверов",
+                    web_app=WebAppInfo(url=SERVER_FORM_URL),
                 )
             ],
             [KeyboardButton(text="Главное меню")],
@@ -255,7 +295,7 @@ def registry_match_from_data(data: dict[str, object]) -> RegistryMatch:
 
 
 def application_summary(data: dict[str, object]) -> str:
-    selected = [SERVER_NAMES[str(host)] for host in data.get("servers", [])]
+    selected = [ALL_SERVICE_NAMES[str(host)] for host in data.get("servers", [])]
     activity = str(data.get("activity", "")) or "не указана"
     return (
         "Проверьте заявку:\n\n"
@@ -277,8 +317,68 @@ def available_servers_text() -> str:
         "4 × A100 80 GB\n\n"
         "<b>H200 (VV)</b>\n"
         "8 × H200 140 GB, требуется VPN\n\n"
+        "<b>mlsub / Cloud.ru</b>\n"
+        "отдельный вычислительный сервис для запуска задач в очереди Cloud.ru. "
+        "Доступ выдаётся через инфраструктуру BrainLab, но сервис управляется отдельно.\n\n"
         "<b>Яндекс-сервер</b>\n"
-        'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.'
+        'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.\n\n'
+        "<b>Alibaba Ascend</b>\n"
+        "тестируем. Выдача доступа пока не открыта."
+    )
+
+
+def onboarding_text() -> str:
+    return (
+        "<b>BRAIn Lab · доступ к вычислениям</b>\n\n"
+        "Сначала заполните <b>Мой профиль</b>: имя и кто вас пригласил. "
+        "Затем откройте <b>Доступные серверы</b>, чтобы сравнить ресурсы и "
+        "условия подключения.\n\n"
+        "Через <b>Получить доступ</b> можно отправить заявку на сервер или "
+        "отдельный сервис. В <b>Мои серверы</b> бот показывает ваши логины, "
+        "команды подключения и сохранённые пароли."
+    )
+
+
+def demo_accesses(
+    username: str, requested_services: Sequence[str]
+) -> list[ProvisionedAccess]:
+    services = list(requested_services)
+    if "mlsub" in services and "brain_lab" not in services:
+        services.insert(0, "brain_lab")
+    connections = {
+        "shkodnik_opt": f"ssh -p 10096 {username}@proxy2.cod.phystech.edu",
+        "brain_lab": f"ssh -p 10210 {username}@proxy2.cod.phystech.edu",
+        "vv_h200": f"ssh -p 30018 {username}@10.0.116.11",
+        "mlsub": "mlsub run --repo <https git> --entry train.py --gpus 1",
+    }
+    return [
+        ProvisionedAccess(
+            host=host,
+            username=username,
+            password=None if host == "mlsub" else "DEMO-PASSWORD",
+            connection=connections[host],
+            group_url="",
+            created=False,
+        )
+        for host in services
+    ]
+
+
+def available_servers_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="☁️ mlsub / Cloud.ru", callback_data="catalog:mlsub"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="◌ Alibaba Ascend · тестируем",
+                    callback_data="catalog:ascend:soon",
+                )
+            ],
+        ]
     )
 
 
@@ -374,6 +474,21 @@ def server_dashboard_text(
         if access.host == "vv_h200":
             lines.append(html.escape(VPN_NOTE))
         sections.append("\n".join(lines))
+    mlsub = by_host.get("mlsub")
+    if mlsub is not None:
+        sections.append(
+            "✅ <b>mlsub / Cloud.ru</b>\n"
+            f"Ник: <code>{html.escape(mlsub.username)}</code>\n"
+            "Отдельный сервис очереди; пароль используется от BrainLab.\n"
+            "Команды: <code>mlsub run | list | status | logs | kill</code>"
+        )
+    elif "mlsub" in registered:
+        sections.append(
+            "✅ <b>mlsub / Cloud.ru</b>\n"
+            "Доступ найден в таблице. Пароль используется от BrainLab."
+        )
+    else:
+        sections.append("○ <b>mlsub / Cloud.ru</b>\nДоступ ещё не добавлен.")
     sections.append(
         "☁️ <b>Яндекс-сервер</b>\n"
         'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.'
@@ -394,6 +509,8 @@ def build_router(
     service: AccessService,
     sheets: GoogleSheetsRepository,
     credential_ttl: int,
+    demo_user_ids: frozenset[int] = frozenset(),
+    admin_user_ids: frozenset[int] = frozenset(),
 ) -> Router:
     router = Router()
 
@@ -445,6 +562,57 @@ def build_router(
         )
         return True
 
+    async def provision_application(
+        chat_id: int,
+        user: User,
+        application: Application,
+        bot: Bot,
+    ) -> bool:
+        try:
+            created_accesses = await asyncio.to_thread(service.submit, application)
+            accesses = await asyncio.to_thread(
+                service.credentials_for, application.telegram_user_id
+            )
+        except ValidationError as error:
+            await bot.send_message(chat_id, str(error), reply_markup=MAIN_MENU)
+            return False
+        except ProvisioningError:
+            LOGGER.exception("Provisioning failed for Telegram user %s", user.id)
+            await bot.send_message(
+                chat_id,
+                "Не удалось создать доступ. Проверьте «Мои серверы»: часть "
+                "ресурсов могла быть выдана до ошибки. Попробуйте ещё раз позже.",
+                reply_markup=MAIN_MENU,
+            )
+            return False
+        if created_accesses:
+            status = "active: " + ", ".join(access.host for access in accesses)
+            try:
+                await asyncio.to_thread(sheets.upsert, application, status)
+            except Exception:
+                LOGGER.exception("Google Sheets synchronization failed")
+        registry, registered_services = await asyncio.gather(
+            asyncio.to_thread(
+                service.storage.registry_match_for, application.telegram_user_id
+            ),
+            asyncio.to_thread(
+                service.storage.registry_services_for, application.telegram_user_id
+            ),
+        )
+        secret_message = await bot.send_message(
+            chat_id,
+            f"{server_dashboard_text(accesses, registry)}\n\n"
+            f"Сообщение удалится через {credential_ttl // 60} мин.",
+            protect_content=True,
+            reply_markup=server_dashboard_keyboard(accesses, registered_services),
+        )
+        asyncio.create_task(
+            delete_later(
+                bot, secret_message.chat.id, secret_message.message_id, credential_ttl
+            )
+        )
+        return True
+
     @router.message(CommandStart())
     @router.message(Command("menu"))
     async def start(message: Message, state: FSMContext) -> None:
@@ -454,11 +622,7 @@ def build_router(
                 "Для получения доступа напишите боту в личные сообщения."
             )
             return
-        await message.answer(
-            "Главное меню обновлено. Здесь можно открыть профиль, посмотреть "
-            "серверы и получить доступ.",
-            reply_markup=MAIN_MENU,
-        )
+        await message.answer(onboarding_text(), reply_markup=MAIN_MENU)
         if message.from_user is not None:
             registry = await asyncio.to_thread(
                 service.storage.registry_match_for, message.from_user.id
@@ -466,8 +630,25 @@ def build_router(
             if registry is None:
                 await offer_registry_link(message, state)
 
+    @router.message(Command("demo"))
+    async def demo(message: Message, state: FSMContext) -> None:
+        if message.from_user is None or message.chat.type != ChatType.PRIVATE:
+            return
+        await state.clear()
+        if message.from_user.id not in demo_user_ids:
+            await message.answer("Demo-режим доступен только владельцу бота.")
+            return
+        await state.set_data({"demo": True})
+        await message.answer(
+            "<b>Безопасная проверка onboarding</b>\n\n"
+            "Вы пройдёте те же формы, что новый пользователь. Бот не изменит "
+            "ваш профиль, таблицу или Unix-аккаунты, а пароль будет явно "
+            "помечен как демонстрационный.",
+            reply_markup=profile_form_menu(),
+        )
+
     @router.message(F.web_app_data)
-    async def web_app_form(message: Message, state: FSMContext) -> None:
+    async def web_app_form(message: Message, state: FSMContext, bot: Bot) -> None:
         if (
             message.from_user is None
             or message.chat.type != ChatType.PRIVATE
@@ -478,8 +659,26 @@ def build_router(
             submission = parse_web_app_data(
                 message.from_user, message.web_app_data.data
             )
+            state_data = await state.get_data()
+            is_demo = (
+                state_data.get("demo") is True
+                and message.from_user.id in demo_user_ids
+            )
             if isinstance(submission, Profile):
                 validate_profile(submission)
+                if is_demo:
+                    await state.set_data(
+                        {
+                            "demo": True,
+                            "demo_full_name": submission.full_name,
+                            "demo_recommender": submission.recommender,
+                        }
+                    )
+                    await message.answer(
+                        "Demo-профиль принят. Теперь выберите ресурсы.",
+                        reply_markup=demo_server_menu(),
+                    )
+                    return
                 await asyncio.to_thread(service.storage.save_profile, submission)
                 await state.clear()
                 await message.answer(
@@ -487,9 +686,17 @@ def build_router(
                     reply_markup=MAIN_MENU,
                 )
                 return
-            profile = await asyncio.to_thread(
-                service.storage.profile_for, message.from_user.id
-            )
+            if is_demo and state_data.get("demo_full_name"):
+                profile = Profile(
+                    message.from_user.id,
+                    message.from_user.username,
+                    str(state_data["demo_full_name"]),
+                    str(state_data["demo_recommender"]),
+                )
+            else:
+                profile = await asyncio.to_thread(
+                    service.storage.profile_for, message.from_user.id
+                )
             if profile is None:
                 await message.answer(
                     "Сначала заполните «Мой профиль».", reply_markup=MAIN_MENU
@@ -500,14 +707,55 @@ def build_router(
         except (WebAppPayloadError, ValidationError) as error:
             await message.answer(str(error), reply_markup=MAIN_MENU)
             return
-        data = application_data(application)
+        if is_demo:
+            accesses = demo_accesses(
+                application.server_username, application.servers
+            )
+            await state.clear()
+            await message.answer(
+                "<b>DEMO · реальные серверы не изменялись</b>\n\n"
+                + server_dashboard_text(accesses)
+                + "\n\nПароль <code>DEMO-PASSWORD</code> ненастоящий.",
+                protect_content=True,
+                reply_markup=MAIN_MENU,
+            )
+            return
+        known_user = await asyncio.to_thread(
+            service.storage.application_for, message.from_user.id
+        )
+        registry = await asyncio.to_thread(
+            service.storage.registry_match_for, message.from_user.id
+        )
+        await state.clear()
+        if known_user is not None or registry is not None:
+            await provision_application(
+                message.chat.id, message.from_user, application, bot
+            )
+            return
+        if not admin_user_ids:
+            await message.answer(
+                "Новые заявки временно не принимаются: администратор не настроен.",
+                reply_markup=MAIN_MENU,
+            )
+            return
         request_id = secrets.token_urlsafe(8)
-        data["request_id"] = request_id
-        await state.set_data(data)
-        await state.set_state(Form.confirm)
+        await asyncio.to_thread(
+            service.storage.save_pending_request, request_id, application
+        )
+        for admin_id in admin_user_ids:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    "<b>Новая заявка на доступ</b>\n\n"
+                    + application_summary(application_data(application)),
+                    reply_markup=admin_approval_keyboard(request_id),
+                )
+            except Exception:
+                LOGGER.exception("Could not notify access admin %s", admin_id)
         await message.answer(
-            application_summary(data),
-            reply_markup=confirmation_keyboard(request_id),
+            "Заявка отправлена администратору. Больше ничего заполнять не нужно: "
+            "после одобрения бот сам пришлёт доступы.",
+            reply_markup=MAIN_MENU,
         )
 
     @router.callback_query(
@@ -625,53 +873,72 @@ def build_router(
             return
         await callback.answer("Создаю доступы…")
         await callback.message.edit_reply_markup(reply_markup=None)
-        try:
-            application = application_from_data(callback.from_user, data)
-            created_accesses = await asyncio.to_thread(service.submit, application)
-            accesses = await asyncio.to_thread(
-                service.credentials_for, application.telegram_user_id
-            )
-        except ValidationError as error:
-            await callback.message.answer(str(error), reply_markup=MAIN_MENU)
+        await provision_application(
+            callback.from_user.id,
+            callback.from_user,
+            application_from_data(callback.from_user, data),
+            bot,
+        )
+
+    @router.callback_query(F.data.startswith("admin:approve:"))
+    async def approve_new_user(callback: CallbackQuery, bot: Bot) -> None:
+        if callback.from_user.id not in admin_user_ids:
+            await callback.answer("Недостаточно прав.", show_alert=True)
             return
-        except ProvisioningError:
-            LOGGER.exception(
-                "Provisioning failed for Telegram user %s", callback.from_user.id
-            )
+        request_id = (callback.data or "").rsplit(":", 1)[-1]
+        application = await asyncio.to_thread(
+            service.storage.claim_pending_request, request_id
+        )
+        if application is None:
+            await callback.answer("Заявка уже обработана.", show_alert=True)
+            return
+        await callback.answer("Выдаю доступ…")
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        applicant = User(
+            id=application.telegram_user_id,
+            is_bot=False,
+            first_name=application.full_name,
+            username=application.telegram_username,
+        )
+        success = await provision_application(
+            application.telegram_user_id, applicant, application, bot
+        )
+        await asyncio.to_thread(
+            service.storage.resolve_pending_request,
+            request_id,
+            "approved" if success else "failed",
+        )
+        if callback.message:
             await callback.message.answer(
-                "Не удалось создать доступ. Ничего повторно не создавалось. "
-                "Попробуйте ещё раз позже.",
-                reply_markup=MAIN_MENU,
+                "Заявка одобрена, доступы отправлены пользователю."
+                if success
+                else "При выдаче произошла ошибка; пользователю отправлено уведомление."
             )
+
+    @router.callback_query(F.data.startswith("admin:reject:"))
+    async def reject_new_user(callback: CallbackQuery, bot: Bot) -> None:
+        if callback.from_user.id not in admin_user_ids:
+            await callback.answer("Недостаточно прав.", show_alert=True)
             return
-        if created_accesses:
-            status = "active: " + ", ".join(access.host for access in accesses)
-            try:
-                await asyncio.to_thread(sheets.upsert, application, status)
-            except Exception:
-                LOGGER.exception("Google Sheets synchronization failed")
-        registry, registered_services = await asyncio.gather(
-            asyncio.to_thread(
-                service.storage.registry_match_for,
-                application.telegram_user_id,
-            ),
-            asyncio.to_thread(
-                service.storage.registry_services_for,
-                application.telegram_user_id,
-            ),
+        request_id = (callback.data or "").rsplit(":", 1)[-1]
+        application = await asyncio.to_thread(
+            service.storage.claim_pending_request, request_id
         )
-        await state.clear()
-        secret_message = await callback.message.answer(
-            f"{server_dashboard_text(accesses, registry)}\n\n"
-            f"Сообщение удалится через {credential_ttl // 60} мин.",
-            protect_content=True,
-            reply_markup=server_dashboard_keyboard(accesses, registered_services),
+        if application is None:
+            await callback.answer("Заявка уже обработана.", show_alert=True)
+            return
+        await asyncio.to_thread(
+            service.storage.resolve_pending_request, request_id, "rejected"
         )
-        asyncio.create_task(
-            delete_later(
-                bot, secret_message.chat.id, secret_message.message_id, credential_ttl
-            )
+        await bot.send_message(
+            application.telegram_user_id,
+            "Заявка на серверный доступ отклонена. Уточните детали у рекомендателя.",
+            reply_markup=MAIN_MENU,
         )
+        await callback.answer("Заявка отклонена")
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
 
     @router.message(Command("servers"))
     @router.message(F.text.in_({"Мои серверы", "🔐 Мои серверы"}))
@@ -723,7 +990,31 @@ def build_router(
     @router.message(F.text == "🖥 Доступные серверы")
     async def available_servers(message: Message, state: FSMContext) -> None:
         await state.clear()
-        await message.answer(available_servers_text(), reply_markup=MAIN_MENU)
+        await message.answer(
+            available_servers_text(), reply_markup=available_servers_keyboard()
+        )
+
+    @router.callback_query(F.data == "catalog:mlsub")
+    async def mlsub_catalog(callback: CallbackQuery, state: FSMContext) -> None:
+        await state.clear()
+        await callback.answer()
+        if callback.message:
+            await callback.message.answer(
+                "<b>mlsub / Cloud.ru</b>\n\n"
+                "Это отдельный сервис очереди задач. Бот сначала обеспечивает "
+                "учётную запись на BrainLab, затем включает доступ к mlsub.\n\n"
+                "После выдачи доступны команды: <code>mlsub run</code>, "
+                "<code>mlsub list</code>, <code>mlsub status</code>, "
+                "<code>mlsub logs</code> и <code>mlsub kill</code>.",
+                reply_markup=server_request_menu("mlsub"),
+            )
+
+    @router.callback_query(F.data == "catalog:ascend:soon")
+    async def ascend_soon(callback: CallbackQuery) -> None:
+        await callback.answer(
+            "Alibaba Ascend сейчас тестируется. Доступ появится позже.",
+            show_alert=True,
+        )
 
     @router.message(F.text == "📚 Сайт и правила")
     async def site_and_rules(message: Message, state: FSMContext) -> None:
@@ -736,13 +1027,13 @@ def build_router(
     @router.callback_query(F.data.startswith("servers:add:"))
     async def add_server(callback: CallbackQuery, state: FSMContext) -> None:
         host = (callback.data or "").rsplit(":", 1)[-1]
-        if host not in SERVER_NAMES or callback.message is None:
+        if host not in {**SERVER_NAMES, **SERVICE_NAMES} or callback.message is None:
             await callback.answer("Неизвестный сервер.", show_alert=True)
             return
         await state.clear()
         await callback.answer()
         await callback.message.answer(
-            f"Откройте короткую заявку на {SERVER_NAMES[host]}.",
+            f"Откройте короткую заявку на {ALL_SERVICE_NAMES[host]}.",
             reply_markup=server_request_menu(host),
         )
 
@@ -822,11 +1113,17 @@ async def run(settings: Settings) -> None:
     )
     bot = Bot(
         token=settings.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        default=BOT_DEFAULTS,
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(
-        build_router(service, sheets, settings.credential_message_ttl_seconds)
+        build_router(
+            service,
+            sheets,
+            settings.credential_message_ttl_seconds,
+            settings.demo_user_ids,
+            settings.admin_user_ids,
+        )
     )
     await bot.set_my_commands(
         [
@@ -835,6 +1132,7 @@ async def run(settings: Settings) -> None:
             BotCommand(command="myinfo", description="Показать профиль"),
             BotCommand(command="profile", description="Показать профиль"),
             BotCommand(command="servers", description="Показать мои серверы"),
+            BotCommand(command="demo", description="Безопасно проверить onboarding"),
             BotCommand(command="cancel", description="Отменить текущее действие"),
         ]
     )

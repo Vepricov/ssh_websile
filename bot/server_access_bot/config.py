@@ -13,10 +13,22 @@ class Settings:
     spreadsheet_id: str
     sheet_id: int
     credential_message_ttl_seconds: int = 300
+    demo_user_ids: frozenset[int] = frozenset()
+    admin_user_ids: frozenset[int] = frozenset()
 
     @classmethod
     def from_env(cls) -> "Settings":
         key = base64.urlsafe_b64decode(os.environ["ACCESS_BOT_ENCRYPTION_KEY"])
+        demo_user_ids = frozenset(
+            int(value.strip())
+            for value in os.environ.get("ACCESS_BOT_DEMO_USER_IDS", "").split(",")
+            if value.strip()
+        )
+        admin_user_ids = frozenset(
+            int(value.strip())
+            for value in os.environ.get("ACCESS_BOT_ADMIN_USER_IDS", "").split(",")
+            if value.strip()
+        )
         return cls(
             bot_token=os.environ["ACCESS_BOT_TOKEN"],
             database_path=Path(
@@ -39,4 +51,6 @@ class Settings:
             credential_message_ttl_seconds=int(
                 os.environ.get("CREDENTIAL_MESSAGE_TTL_SECONDS", "300")
             ),
+            demo_user_ids=demo_user_ids,
+            admin_user_ids=admin_user_ids,
         )

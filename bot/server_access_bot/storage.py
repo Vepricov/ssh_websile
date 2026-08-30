@@ -65,7 +65,7 @@ class Storage:
                     PRIMARY KEY (telegram_user_id, host)
                 );
                 CREATE TABLE IF NOT EXISTS accesses (
-                    telegram_user_id INTEGER NOT NULL REFERENCES users(telegram_user_id),
+                    telegram_user_id INTEGER NOT NULL REFERENCES profiles(telegram_user_id),
                     host TEXT NOT NULL,
                     secret BLOB NOT NULL,
                     created INTEGER NOT NULL,
@@ -80,6 +80,14 @@ class Storage:
                     detail TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS pending_requests (
+                    request_id TEXT PRIMARY KEY,
+                    telegram_user_id INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TEXT
+                );
                 """
             )
             db.execute(
@@ -91,6 +99,32 @@ class Storage:
                 FROM users
                 """
             )
+            foreign_keys = db.execute("PRAGMA foreign_key_list(accesses)").fetchall()
+            if any(row["table"] == "users" for row in foreign_keys):
+                db.commit()
+                db.execute("PRAGMA foreign_keys = OFF")
+                db.executescript(
+                    """
+                    BEGIN;
+                    CREATE TABLE accesses_v2 (
+                        telegram_user_id INTEGER NOT NULL
+                            REFERENCES profiles(telegram_user_id),
+                        host TEXT NOT NULL,
+                        secret BLOB NOT NULL,
+                        created INTEGER NOT NULL,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (telegram_user_id, host)
+                    );
+                    INSERT INTO accesses_v2
+                        (telegram_user_id, host, secret, created, updated_at)
+                    SELECT telegram_user_id, host, secret, created, updated_at
+                    FROM accesses;
+                    DROP TABLE accesses;
+                    ALTER TABLE accesses_v2 RENAME TO accesses;
+                    COMMIT;
+                    """
+                )
+                db.execute("PRAGMA foreign_keys = ON")
             db.execute(
                 """
                 UPDATE registry_users
@@ -313,6 +347,24 @@ class Storage:
         with self._connect() as db:
             db.execute(
                 """
+                INSERT INTO profiles (
+                    telegram_user_id, telegram_username, full_name, recommender
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(telegram_user_id) DO UPDATE SET
+                    telegram_username=excluded.telegram_username,
+                    full_name=excluded.full_name,
+                    recommender=excluded.recommender,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    application.telegram_user_id,
+                    application.telegram_username,
+                    application.full_name,
+                    application.recommender,
+                ),
+            )
+            db.execute(
+                """
                 INSERT INTO users (
                     telegram_user_id, telegram_username, full_name,
                     server_username, access_term, recommender, activity
@@ -420,6 +472,74 @@ class Storage:
                 VALUES (?, ?, ?, ?)
                 """,
                 (telegram_user_id, event, host, detail),
+            )
+
+    def save_pending_request(
+        self, request_id: str, application: Application
+    ) -> None:
+        payload = json.dumps(
+            {
+                "telegram_user_id": application.telegram_user_id,
+                "telegram_username": application.telegram_username,
+                "full_name": application.full_name,
+                "server_username": application.server_username,
+                "access_term": application.access_term,
+                "recommender": application.recommender,
+                "activity": application.activity,
+                "servers": list(application.servers),
+            },
+            ensure_ascii=False,
+        )
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO pending_requests (
+                    request_id, telegram_user_id, payload
+                ) VALUES (?, ?, ?)
+                """,
+                (request_id, application.telegram_user_id, payload),
+            )
+
+    def claim_pending_request(self, request_id: str) -> Application | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT payload FROM pending_requests WHERE request_id = ?",
+                (request_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            updated = db.execute(
+                """
+                UPDATE pending_requests SET status = 'processing'
+                WHERE request_id = ? AND status = 'pending'
+                """,
+                (request_id,),
+            )
+            if updated.rowcount != 1:
+                return None
+            data = json.loads(str(row["payload"]))
+        return Application(
+            telegram_user_id=int(data["telegram_user_id"]),
+            telegram_username=data["telegram_username"],
+            full_name=str(data["full_name"]),
+            server_username=str(data["server_username"]),
+            access_term=str(data["access_term"]),
+            recommender=str(data["recommender"]),
+            activity=str(data["activity"]),
+            servers=tuple(str(host) for host in data["servers"]),
+        )
+
+    def resolve_pending_request(self, request_id: str, status: str) -> None:
+        if status not in {"approved", "rejected", "failed"}:
+            raise ValueError("invalid pending request status")
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE pending_requests
+                SET status = ?, resolved_at = CURRENT_TIMESTAMP
+                WHERE request_id = ?
+                """,
+                (status, request_id),
             )
 
     def has_access(self, telegram_user_id: int, host: str) -> bool:
