@@ -2,7 +2,12 @@ import asyncio
 import base64
 
 from server_access_bot.config import Settings
-from server_access_bot.domain import Application, GpuIdleCandidate, GpuIdleIncident
+from server_access_bot.domain import (
+    Application,
+    GpuIdleCandidate,
+    GpuIdleIncident,
+    ProcessIdentity,
+)
 from server_access_bot.monitoring import (
     GpuFleetScanner,
     deliver_gpu_idle_incidents,
@@ -149,6 +154,11 @@ def test_notification_uses_public_server_name_and_marks_delivery(tmp_path) -> No
             self.messages.append((chat_id, text, kwargs))
 
     bot = FakeBot()
+    class FakeController:
+        def snapshot(self, host, username, pids):
+            assert (host, username, pids) == ("brain_lab", "alice", (101, 102))
+            return (ProcessIdentity(101, 1001), ProcessIdentity(102, 1002))
+
     delivered = asyncio.run(
         deliver_gpu_idle_incidents(
             bot,
@@ -156,6 +166,7 @@ def test_notification_uses_public_server_name_and_marks_delivery(tmp_path) -> No
             (incident,),
             admin_user_ids=frozenset({999}),
             now=1800,
+            process_controller=FakeController(),
         )
     )
 
@@ -166,6 +177,16 @@ def test_notification_uses_public_server_name_and_marks_delivery(tmp_path) -> No
     assert "9.0 GB" in bot.messages[0][1]
     assert "PID: <code>101, 102</code>" in bot.messages[0][1]
     assert format_user_idle_notification((incident,)) == bot.messages[0][1]
+    keyboard = bot.messages[0][2]["reply_markup"]
+    callback_data = keyboard.inline_keyboard[0][0].callback_data
+    assert callback_data.startswith("gpu:stop:")
+    token = callback_data.rsplit(":", 1)[-1]
+    action = storage.gpu_process_action_for(token, 101, now=1800)
+    assert action is not None
+    assert action.identities == (
+        ProcessIdentity(101, 1001),
+        ProcessIdentity(102, 1002),
+    )
 
 
 def test_monitor_policy_defaults_are_loaded_from_environment(
@@ -231,3 +252,4 @@ def test_unmapped_server_username_is_reported_only_to_admin(tmp_path) -> None:
     assert "PID: 303" in bot.messages[0][1]
     assert "не менее 30 минут" in bot.messages[0][1]
     assert bot.messages[0][2]["protect_content"] is False
+    assert "reply_markup" not in bot.messages[0][2]

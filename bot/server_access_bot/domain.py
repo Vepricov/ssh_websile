@@ -74,3 +74,22 @@ class GpuIdleIncident:
     pids: tuple[int, ...]
     first_seen_at: int
     last_seen_at: int
+
+
+@dataclass(frozen=True, order=True)
+class ProcessIdentity:
+    pid: int
+    start_ticks: int
+
+
+@dataclass(frozen=True)
+class GpuProcessAction:
+    token: str
+    telegram_user_id: int
+    incident_key: str
+    host: str
+    server_username: str
+    identities: tuple[ProcessIdentity, ...]
+    status: str
+    expires_at: int
+    term_requested_at: int | None = None

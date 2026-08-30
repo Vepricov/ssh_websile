@@ -9,6 +9,8 @@ from .domain import (
     Application,
     GpuIdleCandidate,
     GpuIdleIncident,
+    GpuProcessAction,
+    ProcessIdentity,
     Profile,
     ProvisionedAccess,
     RegistryMatch,
@@ -108,6 +110,18 @@ class Storage:
                     consecutive_samples INTEGER NOT NULL,
                     last_notified_at INTEGER
                 );
+                CREATE TABLE IF NOT EXISTS gpu_process_actions (
+                    token TEXT PRIMARY KEY,
+                    telegram_user_id INTEGER NOT NULL,
+                    incident_key TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    server_username TEXT NOT NULL,
+                    identities TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    term_requested_at INTEGER,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
             db.execute(
@@ -173,6 +187,111 @@ class Storage:
                 ON registry_users(source_telegram_username COLLATE NOCASE)
                 """
             )
+
+    @staticmethod
+    def _gpu_process_action_from_row(row: sqlite3.Row) -> GpuProcessAction:
+        return GpuProcessAction(
+            token=str(row["token"]),
+            telegram_user_id=int(row["telegram_user_id"]),
+            incident_key=str(row["incident_key"]),
+            host=str(row["host"]),
+            server_username=str(row["server_username"]),
+            identities=tuple(
+                ProcessIdentity(int(item["pid"]), int(item["start_ticks"]))
+                for item in json.loads(str(row["identities"]))
+            ),
+            status=str(row["status"]),
+            expires_at=int(row["expires_at"]),
+            term_requested_at=(
+                None
+                if row["term_requested_at"] is None
+                else int(row["term_requested_at"])
+            ),
+        )
+
+    def save_gpu_process_action(self, action: GpuProcessAction) -> None:
+        identities = json.dumps(
+            [
+                {"pid": item.pid, "start_ticks": item.start_ticks}
+                for item in action.identities
+            ]
+        )
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO gpu_process_actions (
+                    token, telegram_user_id, incident_key, host,
+                    server_username, identities, status, expires_at,
+                    term_requested_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    action.token,
+                    action.telegram_user_id,
+                    action.incident_key,
+                    action.host,
+                    action.server_username,
+                    identities,
+                    action.status,
+                    action.expires_at,
+                    action.term_requested_at,
+                ),
+            )
+
+    def gpu_process_action_for(
+        self, token: str, telegram_user_id: int, *, now: int
+    ) -> GpuProcessAction | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT * FROM gpu_process_actions
+                WHERE token = ? AND telegram_user_id = ? AND expires_at >= ?
+                """,
+                (token, telegram_user_id, now),
+            ).fetchone()
+        return None if row is None else self._gpu_process_action_from_row(row)
+
+    def transition_gpu_process_action(
+        self,
+        token: str,
+        telegram_user_id: int,
+        expected_status: str,
+        new_status: str,
+        *,
+        now: int,
+        expires_at: int | None = None,
+        term_requested_at: int | None = None,
+    ) -> GpuProcessAction | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT * FROM gpu_process_actions
+                WHERE token = ? AND telegram_user_id = ?
+                  AND status = ? AND expires_at >= ?
+                """,
+                (token, telegram_user_id, expected_status, now),
+            ).fetchone()
+            if row is None:
+                return None
+            updated = db.execute(
+                """
+                UPDATE gpu_process_actions
+                SET status = ?, expires_at = COALESCE(?, expires_at),
+                    term_requested_at = COALESCE(?, term_requested_at)
+                WHERE token = ? AND telegram_user_id = ? AND status = ?
+                """,
+                (
+                    new_status,
+                    expires_at,
+                    term_requested_at,
+                    token,
+                    telegram_user_id,
+                    expected_status,
+                ),
+            )
+            if updated.rowcount != 1:
+                return None
+        return self._gpu_process_action_from_row(row)
 
     def save_profile(self, profile: Profile) -> None:
         with self._connect() as db:

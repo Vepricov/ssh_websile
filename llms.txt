@@ -5,8 +5,8 @@ Public, secret-free documentation for users and automation agents.
 ## Canonical public resources
 - Machine-readable catalog: /servers.json
 - Human catalog: /servers.html
-- Старый сервер: /servers.html#old-server
-- Новый сервер: /servers.html#new-server
+- Старый сервер (MIPT): /servers.html#old-server
+- Новый сервер (BrainLab): /servers.html#new-server
 - H200: /servers.html#h200
 - mlsub / Cloud.ru: /servers.html#mlsub
 - Яндекс-сервер: /servers.html#yandex

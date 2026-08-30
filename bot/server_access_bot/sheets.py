@@ -19,17 +19,17 @@ FORM_HEADERS = (
 )
 BOT_HEADERS = ("Telegram user ID", "Статус выдачи", "Обновлено ботом")
 SERVER_LABELS = {
-    "shkodnik_opt": "Старый (mipt) -- x4 RTX 2080 11гб, x2 A100 40гб, x2 A100 80гб",
-    "brain_lab": "Новый (BrainLab) -- x4 A100 80гб",
+    "shkodnik_opt": "Старый сервер (MIPT) -- x4 RTX 2080 11гб, x2 A100 40гб, x2 A100 80гб",
+    "brain_lab": "Новый сервер (BrainLab) -- x4 A100 80гб",
     "vv_h200": "H200 (VB) - x8 H200 140гб",
     "mlsub": "mlsub / Cloud.ru — отдельный сервис через BrainLab",
 }
 REGISTRY_SERVERS = (
-    ("shkodnik_opt", "Старый (mipt)"),
-    ("brain_lab", "Новый (BrainLab)"),
-    ("vv_h200", "H200"),
-    ("yandex", "Яндекс"),
-    ("mlsub", "mlsub / Cloud.ru"),
+    ("shkodnik_opt", ("Старый сервер (MIPT)", "Старый (mipt)")),
+    ("brain_lab", ("Новый сервер (BrainLab)", "Новый (BrainLab)")),
+    ("vv_h200", ("H200",)),
+    ("yandex", ("Яндекс",)),
+    ("mlsub", ("mlsub / Cloud.ru",)),
 )
 
 
@@ -98,8 +98,11 @@ def registry_match_from_rows(
     latest = matched[-1]
     servers = tuple(
         host
-        for host, marker in REGISTRY_SERVERS
-        if any(marker.casefold() in _cell(row, 6).casefold() for row in matched)
+        for host, markers in REGISTRY_SERVERS
+        if any(
+            any(marker.casefold() in _cell(row, 6).casefold() for marker in markers)
+            for row in matched
+        )
     )
     return RegistryMatch(
         telegram_username=normalized_username,

@@ -6,6 +6,8 @@ from server_access_bot.app import (
     available_servers_text,
     admin_approval_keyboard,
     demo_accesses,
+    gpu_force_keyboard,
+    gpu_stop_confirmation_keyboard,
     onboarding_text,
     confirmation_keyboard,
     my_info_text,
@@ -84,7 +86,7 @@ def test_server_dashboard_contains_managed_accesses_and_yandex_contact() -> None
 
     assert "brain-secret" in text
     assert "h200-secret" in text
-    assert "Старый (mipt)" in text
+    assert "Старый сервер (MIPT)" in text
     assert "Доступ ещё не добавлен" in text
     assert "получите VPN" in text
     assert "@undef1ne5" in text
@@ -132,6 +134,20 @@ def test_admin_approval_is_bound_to_a_durable_request() -> None:
     assert keyboard.inline_keyboard[0][1].callback_data == "admin:reject:request-123"
 
 
+def test_gpu_process_buttons_are_bound_to_one_action_token() -> None:
+    confirmation = gpu_stop_confirmation_keyboard("safe-token")
+    force = gpu_force_keyboard("safe-token")
+
+    assert confirmation.inline_keyboard[0][0].callback_data == (
+        "gpu:term:safe-token"
+    )
+    assert confirmation.inline_keyboard[0][1].callback_data == (
+        "gpu:cancel:safe-token"
+    )
+    assert force.inline_keyboard[0][0].callback_data == "gpu:kill:safe-token"
+    assert force.inline_keyboard[0][1].callback_data == "gpu:cancel:safe-token"
+
+
 def test_untrusted_group_url_is_not_rendered_as_a_link() -> None:
     text = server_dashboard_text(
         [
@@ -171,7 +187,7 @@ def test_registry_link_requires_one_tap_confirmation() -> None:
     keyboard = registry_confirmation_keyboard("link-123")
 
     assert "Alice Smith" in text
-    assert "Новый (BrainLab)" in text
+    assert "Новый сервер (BrainLab)" in text
     assert "Яндекс-сервер" in text
     assert keyboard.inline_keyboard[0][0].callback_data == ("registry:confirm:link-123")
 
@@ -203,7 +219,7 @@ def test_my_info_combines_profile_and_registered_services() -> None:
     assert "<b>Мой профиль</b>" in text
     assert "@alice_tg" in text
     assert "Ник на серверах: <code>alice</code>" in text
-    assert "Новый (BrainLab)" in text
+    assert "Новый сервер (BrainLab)" in text
     assert "Яндекс-сервер" in text
 
 
@@ -211,8 +227,8 @@ def test_available_server_message_is_complete() -> None:
     catalog = available_servers_text()
     keyboard = available_servers_keyboard()
 
-    assert "Старый (mipt)" in catalog
-    assert "Новый (BrainLab)" in catalog
+    assert "Старый сервер (MIPT)" in catalog
+    assert "Новый сервер (BrainLab)" in catalog
     assert "H200 (VV)" in catalog
     assert "@undef1ne5" in catalog
     assert "helpdesk02@vkusvill.ru" in catalog

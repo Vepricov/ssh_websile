@@ -2,6 +2,7 @@ import asyncio
 import html
 import logging
 import re
+import secrets
 import shlex
 import subprocess
 import time
@@ -10,7 +11,10 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from .domain import GpuIdleCandidate, GpuIdleIncident
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from .domain import GpuIdleCandidate, GpuIdleIncident, GpuProcessAction
+from .process_control import GpuProcessController, ProcessControlError
 from .storage import Storage
 
 
@@ -18,10 +22,11 @@ Runner = Callable[[str, tuple[str, ...]], tuple[int, str]]
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 LOGGER = logging.getLogger(__name__)
 PUBLIC_SERVER_NAMES = {
-    "shkodnik_opt": "Старый сервер",
-    "brain_lab": "Новый сервер",
+    "shkodnik_opt": "Старый сервер (MIPT)",
+    "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200",
 }
+PROCESS_ACTION_TTL_SECONDS = 900
 
 
 @dataclass(frozen=True)
@@ -320,6 +325,7 @@ async def deliver_gpu_idle_incidents(
     admin_user_ids: frozenset[int],
     now: int,
     policy: GpuIdlePolicy = GpuIdlePolicy(),
+    process_controller: GpuProcessController | None = None,
 ) -> tuple[str, ...]:
     grouped: dict[str, list[GpuIdleIncident]] = defaultdict(list)
     for incident in incidents:
@@ -332,11 +338,59 @@ async def deliver_gpu_idle_incidents(
         delivery_failed = False
         delivered = False
         if telegram_user_id is not None:
+            action_buttons = []
+            if process_controller is not None:
+                for incident in user_incidents:
+                    try:
+                        identities = await asyncio.to_thread(
+                            process_controller.snapshot,
+                            incident.host,
+                            incident.server_username,
+                            incident.pids,
+                        )
+                        token = secrets.token_urlsafe(8)
+                        await asyncio.to_thread(
+                            storage.save_gpu_process_action,
+                            GpuProcessAction(
+                                token=token,
+                                telegram_user_id=telegram_user_id,
+                                incident_key=incident.key,
+                                host=incident.host,
+                                server_username=incident.server_username,
+                                identities=identities,
+                                status="pending",
+                                expires_at=now + PROCESS_ACTION_TTL_SECONDS,
+                            ),
+                        )
+                        server_name = PUBLIC_SERVER_NAMES.get(
+                            incident.host, incident.host
+                        )
+                        action_buttons.append(
+                            [
+                                InlineKeyboardButton(
+                                    text=(
+                                        f"🛑 Остановить · {server_name} · "
+                                        f"GPU {incident.gpu_index}"
+                                    ),
+                                    callback_data=f"gpu:stop:{token}",
+                                )
+                            ]
+                        )
+                    except ProcessControlError:
+                        LOGGER.exception(
+                            "Could not prepare GPU process action for %s",
+                            incident.key,
+                        )
             try:
+                send_options = {"protect_content": True}
+                if action_buttons:
+                    send_options["reply_markup"] = InlineKeyboardMarkup(
+                        inline_keyboard=action_buttons
+                    )
                 await bot.send_message(
                     telegram_user_id,
                     format_user_idle_notification(user_incidents, policy),
-                    protect_content=True,
+                    **send_options,
                 )
                 delivered = True
             except Exception:
@@ -375,6 +429,7 @@ async def run_gpu_idle_monitor(
     monitor: GpuIdleMonitor,
     *,
     admin_user_ids: frozenset[int],
+    process_controller: GpuProcessController | None = None,
 ) -> None:
     while True:
         started_at = time.monotonic()
@@ -389,6 +444,7 @@ async def run_gpu_idle_monitor(
                     admin_user_ids=admin_user_ids,
                     now=now,
                     policy=monitor.policy,
+                    process_controller=process_controller,
                 )
         except asyncio.CancelledError:
             raise

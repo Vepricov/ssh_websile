@@ -3,6 +3,7 @@ import contextlib
 import html
 import logging
 import secrets
+import time
 from collections.abc import Sequence
 from urllib.parse import urlencode, urlparse
 
@@ -29,6 +30,7 @@ from aiogram.types import (
 from .config import Settings
 from .domain import (
     Application,
+    GpuProcessAction,
     Profile,
     ProvisionedAccess,
     RegistryMatch,
@@ -41,6 +43,11 @@ from .monitoring import (
     run_gpu_idle_monitor,
 )
 from .provisioning import ProvisioningError, SshProvisioner
+from .process_control import (
+    GpuProcessController,
+    ProcessControlError,
+    signal_gpu_process_action,
+)
 from .service import AccessService, ValidationError, validate, validate_profile
 from .sheets import (
     GoogleSheetsRepository,
@@ -67,8 +74,8 @@ VPN_NOTE = (
     "можно сразу отправлять заявку."
 )
 SERVER_NAMES = {
-    "shkodnik_opt": "Старый (mipt)",
-    "brain_lab": "Новый (BrainLab)",
+    "shkodnik_opt": "Старый сервер (MIPT)",
+    "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200 (VV)",
 }
 SERVICE_NAMES = {"mlsub": "mlsub / Cloud.ru"}
@@ -188,6 +195,65 @@ def admin_approval_keyboard(request_id: str) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def gpu_stop_confirmation_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Да, отправить SIGTERM",
+                    callback_data=f"gpu:term:{token}",
+                ),
+                InlineKeyboardButton(
+                    text="Отмена", callback_data=f"gpu:cancel:{token}"
+                ),
+            ]
+        ]
+    )
+
+
+def gpu_force_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Завершить принудительно",
+                    callback_data=f"gpu:kill:{token}",
+                ),
+                InlineKeyboardButton(
+                    text="Отмена", callback_data=f"gpu:cancel:{token}"
+                ),
+            ]
+        ]
+    )
+
+
+def gpu_action_text(action: GpuProcessAction) -> str:
+    server_name = SERVER_NAMES.get(action.host, action.host)
+    pids = ", ".join(str(item.pid) for item in action.identities)
+    return (
+        f"<b>{html.escape(server_name)}</b>\n"
+        f"Unix username: <code>{html.escape(action.server_username)}</code>\n"
+        f"PID: <code>{pids}</code>"
+    )
+
+
+def gpu_sudo_passwords(
+    storage: Storage, admin_user_ids: frozenset[int]
+) -> dict[str, str]:
+    passwords: dict[str, str] = {}
+    for telegram_user_id in sorted(admin_user_ids):
+        for access in storage.credentials_for(telegram_user_id):
+            if access.host not in SERVER_NAMES or not access.password:
+                continue
+            existing = passwords.get(access.host)
+            if existing is not None and existing != access.password:
+                raise RuntimeError(
+                    f"conflicting admin sudo credentials for {access.host}"
+                )
+            passwords[access.host] = access.password
+    return passwords
 
 
 def server_dashboard_keyboard(
@@ -326,9 +392,9 @@ def application_summary(data: dict[str, object]) -> str:
 def available_servers_text() -> str:
     return (
         "<b>Доступные серверы</b>\n\n"
-        "<b>Старый (mipt)</b>\n"
+        "<b>Старый сервер (MIPT)</b>\n"
         "4 × RTX 2080 11 GB, 2 × A100 40 GB, 2 × A100 80 GB\n\n"
-        "<b>Новый (BrainLab)</b>\n"
+        "<b>Новый сервер (BrainLab)</b>\n"
         "4 × A100 80 GB\n\n"
         "<b>H200 (VV)</b>\n"
         "8 × H200 140 GB. Перед заявкой пришлите ФИО и физтеховскую "
@@ -531,6 +597,7 @@ def build_router(
     credential_ttl: int,
     demo_user_ids: frozenset[int] = frozenset(),
     admin_user_ids: frozenset[int] = frozenset(),
+    process_controller: GpuProcessController | None = None,
 ) -> Router:
     router = Router()
 
@@ -960,6 +1027,174 @@ def build_router(
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
 
+    @router.callback_query(F.data.startswith("gpu:stop:"))
+    async def confirm_gpu_stop(callback: CallbackQuery) -> None:
+        if process_controller is None or callback.message is None:
+            await callback.answer("Управление процессами недоступно.", show_alert=True)
+            return
+        token = (callback.data or "").rsplit(":", 1)[-1]
+        now = int(time.time())
+        action = await asyncio.to_thread(
+            service.storage.gpu_process_action_for,
+            token,
+            callback.from_user.id,
+            now=now,
+        )
+        if action is None or action.status != "pending":
+            await callback.answer("Кнопка устарела или уже использована.", show_alert=True)
+            return
+        try:
+            alive = await asyncio.to_thread(
+                process_controller.alive,
+                action.host,
+                action.server_username,
+                action.identities,
+            )
+        except ProcessControlError:
+            LOGGER.exception("Could not verify GPU process action %s", token)
+            await callback.answer("Не удалось проверить процесс.", show_alert=True)
+            return
+        if alive != action.identities:
+            await asyncio.to_thread(
+                service.storage.transition_gpu_process_action,
+                token,
+                callback.from_user.id,
+                "pending",
+                "stale",
+                now=now,
+            )
+            await callback.answer(
+                "Процесс уже завершился или PID изменился.", show_alert=True
+            )
+            return
+        await callback.answer()
+        await callback.message.answer(
+            "<b>Точно остановить эти процессы?</b>\n\n"
+            + gpu_action_text(action)
+            + "\n\nСначала бот отправит безопасный SIGTERM.",
+            reply_markup=gpu_stop_confirmation_keyboard(token),
+        )
+
+    @router.callback_query(F.data.startswith("gpu:term:"))
+    async def terminate_gpu_process(callback: CallbackQuery) -> None:
+        if process_controller is None or callback.message is None:
+            await callback.answer("Управление процессами недоступно.", show_alert=True)
+            return
+        token = (callback.data or "").rsplit(":", 1)[-1]
+        now = int(time.time())
+        try:
+            action = await asyncio.to_thread(
+                signal_gpu_process_action,
+                service.storage,
+                process_controller,
+                token,
+                callback.from_user.id,
+                "TERM",
+                now=now,
+            )
+        except ProcessControlError:
+            LOGGER.exception("Could not send SIGTERM for GPU action %s", token)
+            await callback.answer(
+                "Действие устарело или процесс изменился.", show_alert=True
+            )
+            return
+        await callback.answer("SIGTERM отправлен")
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(
+            "SIGTERM отправлен. Через 10 секунд проверю процесс.\n\n"
+            + gpu_action_text(action)
+        )
+        await asyncio.sleep(10)
+        current = await asyncio.to_thread(
+            service.storage.gpu_process_action_for,
+            token,
+            callback.from_user.id,
+            now=int(time.time()),
+        )
+        if current is None or current.status != "term_sent":
+            return
+        try:
+            alive = await asyncio.to_thread(
+                process_controller.alive,
+                current.host,
+                current.server_username,
+                current.identities,
+            )
+        except ProcessControlError:
+            LOGGER.exception("Could not verify SIGTERM result for %s", token)
+            await callback.message.answer(
+                "Не удалось проверить результат SIGTERM. Попробуйте позже."
+            )
+            return
+        if not alive:
+            await asyncio.to_thread(
+                service.storage.transition_gpu_process_action,
+                token,
+                callback.from_user.id,
+                "term_sent",
+                "completed",
+                now=int(time.time()),
+            )
+            await callback.message.answer("✅ Процесс остановлен, SIGKILL не нужен.")
+            return
+        await callback.message.answer(
+            "Процесс всё ещё работает. Принудительное завершение необратимо.",
+            reply_markup=gpu_force_keyboard(token),
+        )
+
+    @router.callback_query(F.data.startswith("gpu:kill:"))
+    async def kill_gpu_process(callback: CallbackQuery) -> None:
+        if process_controller is None or callback.message is None:
+            await callback.answer("Управление процессами недоступно.", show_alert=True)
+            return
+        token = (callback.data or "").rsplit(":", 1)[-1]
+        try:
+            action = await asyncio.to_thread(
+                signal_gpu_process_action,
+                service.storage,
+                process_controller,
+                token,
+                callback.from_user.id,
+                "KILL",
+                now=int(time.time()),
+            )
+        except ProcessControlError:
+            LOGGER.exception("Could not send SIGKILL for GPU action %s", token)
+            await callback.answer(
+                "Действие недоступно или процесс изменился.", show_alert=True
+            )
+            return
+        await callback.answer("SIGKILL отправлен")
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(
+            "Процессу отправлен SIGKILL.\n\n" + gpu_action_text(action)
+        )
+
+    @router.callback_query(F.data.startswith("gpu:cancel:"))
+    async def cancel_gpu_process_action(callback: CallbackQuery) -> None:
+        token = (callback.data or "").rsplit(":", 1)[-1]
+        now = int(time.time())
+        action = await asyncio.to_thread(
+            service.storage.gpu_process_action_for,
+            token,
+            callback.from_user.id,
+            now=now,
+        )
+        if action is None or action.status not in {"pending", "term_sent"}:
+            await callback.answer("Кнопка уже неактуальна.", show_alert=True)
+            return
+        await asyncio.to_thread(
+            service.storage.transition_gpu_process_action,
+            token,
+            callback.from_user.id,
+            action.status,
+            "canceled",
+            now=now,
+        )
+        await callback.answer("Отменено")
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+
     @router.message(Command("servers"))
     @router.message(F.text.in_({"Мои серверы", "🔐 Мои серверы"}))
     async def my_servers(message: Message, state: FSMContext, bot: Bot) -> None:
@@ -1126,6 +1361,9 @@ def build_router(
 async def run(settings: Settings) -> None:
     storage = Storage(settings.database_path, settings.encryption_key)
     service = AccessService(storage, SshProvisioner())
+    process_controller = GpuProcessController(
+        sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids)
+    )
     sheets = GoogleSheetsRepository(
         settings.google_service_account_file,
         settings.spreadsheet_id,
@@ -1143,6 +1381,7 @@ async def run(settings: Settings) -> None:
             settings.credential_message_ttl_seconds,
             settings.demo_user_ids,
             settings.admin_user_ids,
+            process_controller,
         )
     )
     monitor_task = None
@@ -1172,7 +1411,10 @@ async def run(settings: Settings) -> None:
         )
         monitor_task = asyncio.create_task(
             run_gpu_idle_monitor(
-                bot, monitor, admin_user_ids=settings.admin_user_ids
+                bot,
+                monitor,
+                admin_user_ids=settings.admin_user_ids,
+                process_controller=process_controller,
             )
         )
     await bot.set_my_commands(
