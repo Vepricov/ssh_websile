@@ -1,18 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "updated": "2026-08-30",
   "access_bot": "https://t.me/brainlab_server_access_bot",
-  "routing_policy": [
-    "Check suitable free GPUs only on shkodnik_opt, brain_lab, and vv_h200.",
-    "If none is suitable, submit the workload through mlsub to the Cloud.ru queue.",
-    "Do not infer credentials or use hosts not listed for the project."
-  ],
+  "public_naming": "Use public display names only. SSH commands and personal aliases are returned by the access bot.",
   "resources": [
-    {"id":"shkodnik_opt","name":"shkodnik_opt","kind":"ssh-server","status":"available","requestable":true,"gpus":["2x A100 80GB","4x A100 40GB","2x RTX 2080 Ti"],"ssh_alias":"shkodnik_opt","guide":"/servers.html#shkodnik-opt","notes":["Set CUDA_DEVICE_ORDER=PCI_BUS_ID before PyTorch GPU selection."]},
-    {"id":"brain_lab","name":"brain_lab","kind":"ssh-server","status":"available","requestable":true,"gpus":["4x A100 80GB"],"ssh_alias":"brain_lab","fallback_alias":"brain_lab_vpn","guide":"/servers.html#brain-lab"},
-    {"id":"vv_h200","name":"vv_h200","kind":"ssh-server","status":"available","requestable":true,"gpus":["8x H200"],"ssh_alias":"vv_h200","network_requirement":"Corporate VPN through do-vpn ProxyJump","guide":"/servers.html#vv-h200"},
-    {"id":"mlsub","name":"mlsub / Cloud.ru","kind":"compute-service","status":"available","requestable":true,"access_via":"brain_lab","interface":["mlsub run","mlsub list","mlsub status","mlsub logs","mlsub kill"],"guide":"/servers.html#mlsub","notes":["Prefer 1-2 GPU jobs.","Use /home/jovyan for persistent cache and outputs."]},
-    {"id":"yandex","name":"Yandex server","kind":"external-resource","status":"available","requestable":false,"contact":"@aloeme","guide":"/servers.html#yandex"},
-    {"id":"alibaba_ascend","name":"Alibaba Ascend","kind":"preview","status":"testing","requestable":false,"guide":"/servers.html#alibaba-ascend","notes":["Hardware model and access procedure are not confirmed yet."]}
+    {"id":"old_server","name":"Старый сервер","kind":"ssh-server","status":"available","requestable":true,"gpus":["2x A100 80GB","4x A100 40GB","2x RTX 2080 Ti"],"connection":"Provided personally by the bot","guide":"/servers.html#old-server","notes":["Set CUDA_DEVICE_ORDER=PCI_BUS_ID before PyTorch GPU selection."]},
+    {"id":"new_server","name":"Новый сервер","kind":"ssh-server","status":"available","requestable":true,"gpus":["4x A100 80GB"],"connection":"Provided personally by the bot","guide":"/servers.html#new-server"},
+    {"id":"h200","name":"H200","kind":"ssh-server","status":"available","requestable":true,"gpus":["8x H200"],"network_requirement":"VPN required; current instructions are delivered with access","connection":"Provided personally by the bot","guide":"/servers.html#h200"},
+    {"id":"mlsub","name":"mlsub / Cloud.ru","kind":"compute-service","status":"available","requestable":true,"connection":"Provided personally by the bot","interface":["mlsub run","mlsub list","mlsub status","mlsub logs","mlsub kill"],"guide":"/servers.html#mlsub","notes":["Prefer 1-2 GPU jobs.","Use /home/jovyan for persistent cache and outputs."]},
+    {"id":"yandex","name":"Яндекс-сервер","kind":"external-resource","status":"available","requestable":false,"contact":"@aloeme","guide":"/servers.html#yandex"},
+    {"id":"alibaba_ascend","name":"Alibaba Ascend","kind":"preview","status":"testing","requestable":false,"guide":"/servers.html#alibaba-ascend","notes":["Hardware and access procedure are not confirmed yet."]}
   ]
 }

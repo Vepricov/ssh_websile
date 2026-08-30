@@ -3,67 +3,48 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="description" content="Каталог GPU-серверов и вычислительных сервисов BRAIn Lab">
-    <title>BRAIn Lab Compute</title>
+    <meta name="description" content="Серверы и вычислительные сервисы BRAIn Lab">
+    <title>Серверы BRAIn Lab</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
-<body class="ops-site">
-    <nav class="ops-nav" aria-label="Основная навигация">
-        <a class="ops-brand" href="index.html"><span class="brand-mark">B/</span>BRAIn Lab Compute</a>
-        <div class="ops-links">
-            <a class="active" href="index.html">Обзор</a>
-            <a href="servers.html">Ресурсы</a>
-            <a href="rules.html">Правила</a>
-            <a href="tools.html">Инструменты</a>
-        </div>
-        <a class="bot-link" href="https://t.me/brainlab_server_access_bot">Открыть бота ↗</a>
+<body class="ops-site brand-site">
+    <nav class="ops-nav">
+        <a class="lab-brand" href="index.html"><img src="assets/brain_logo_notag.png" alt="BRAIn Lab"></a>
+        <div class="ops-links"><a class="active" href="index.html">Главная</a><a href="servers.html">Серверы</a><a href="rules.html">Правила</a><a href="tools.html">Инструменты</a></div>
+        <a class="bot-link" href="https://t.me/brainlab_server_access_bot">Получить доступ</a>
     </nav>
 
     <main>
-        <section class="ops-hero">
-            <div class="hero-copy">
-                <p class="ops-eyebrow"><span></span> COMPUTE ROUTER / BRAIn LAB</p>
-                <h1>Выберите ресурс.<br><i>Запустите работу.</i></h1>
-                <p class="hero-lead">Один каталог для физических GPU-серверов, облачной очереди и внешних ресурсов. У каждого пути свои правила доступа.</p>
-                <div class="hero-actions">
-                    <a class="ops-button primary" href="servers.html">Смотреть ресурсы</a>
-                    <a class="ops-button" href="https://t.me/brainlab_server_access_bot">Получить доступ в Telegram</a>
-                </div>
+        <section class="brand-hero">
+            <div class="brand-hero-copy">
+                <p class="brand-kicker">Вычислительная инфраструктура лаборатории</p>
+                <h1>Серверы для<br><span>исследований</span></h1>
+                <p>Здесь собраны доступные GPU-серверы, облачная очередь и внешние ресурсы. Выберите подходящий вариант, а бот выдаст персональные данные для подключения.</p>
+                <div class="hero-actions"><a class="brand-button primary" href="servers.html">Выбрать сервер</a><a class="brand-button" href="https://t.me/brainlab_server_access_bot">Открыть Telegram-бота</a></div>
             </div>
-            <div class="router-panel" aria-label="Порядок выбора вычислений">
-                <div class="panel-head"><span>ROUTING POLICY</span><b>LIVE</b></div>
-                <ol class="route-list">
-                    <li><span>01</span><div><b>Проверьте прямые GPU</b><small>shkodnik_opt · brain_lab · vv_h200</small></div></li>
-                    <li><span>02</span><div><b>Нет подходящей карты?</b><small>Отправьте задачу в mlsub / Cloud.ru</small></div></li>
-                    <li><span>03</span><div><b>Внешний ресурс</b><small>Следуйте контакту и правилам владельца</small></div></li>
-                </ol>
+            <div class="brand-hero-art" aria-hidden="true">
+                <div class="node-map"><i></i><i></i><i></i><i></i><i></i><i></i><span class="edge e1"></span><span class="edge e2"></span><span class="edge e3"></span><span class="edge e4"></span></div>
+                <div class="hero-stamp"><b>GPU</b><span>compute<br>for science</span></div>
             </div>
         </section>
 
-        <section class="resource-strip" aria-labelledby="resources-title">
-            <div class="section-heading">
-                <div><p class="ops-eyebrow">RESOURCE MAP</p><h2 id="resources-title">Что доступно</h2></div>
-                <a href="servers.html">Полный каталог →</a>
-            </div>
-            <div class="resource-grid compact">
-                <a class="resource-card" href="servers.html#shkodnik-opt"><span class="resource-type">SSH · MIPT</span><h3>shkodnik_opt</h3><p>A100 40/80 GB и RTX 2080 Ti</p><b>8 GPU</b></a>
-                <a class="resource-card" href="servers.html#brain-lab"><span class="resource-type">SSH · BRAINLAB</span><h3>brain_lab</h3><p>Основной новый сервер лаборатории</p><b>4 × A100 80 GB</b></a>
-                <a class="resource-card accent" href="servers.html#vv-h200"><span class="resource-type">SSH · VPN</span><h3>vv_h200</h3><p>Подключение через do-vpn / ProxyJump</p><b>8 × H200</b></a>
-                <a class="resource-card cloud" href="servers.html#mlsub"><span class="resource-type">QUEUE · CLOUD.RU</span><h3>mlsub</h3><p>Отдельный сервис очереди через BrainLab</p><b>до 8 задач</b></a>
-                <a class="resource-card external" href="servers.html#yandex"><span class="resource-type">EXTERNAL</span><h3>Яндекс</h3><p>Доступ выдаёт другая команда</p><b>@aloeme</b></a>
-                <article class="resource-card soon" aria-disabled="true"><span class="resource-type">TESTING</span><h3>Alibaba Ascend</h3><p>Платформа проходит внутреннюю проверку</p><b>скоро</b></article>
+        <section class="brand-resources">
+            <header class="brand-section-head"><div><p class="brand-kicker">Доступные ресурсы</p><h2>Выберите, где работать</h2></div><p>Названия здесь общие для всех. Персональные логин и команда SSH появляются только в боте после выдачи доступа.</p></header>
+            <div class="brand-card-grid">
+                <a class="brand-card old" href="servers.html#old-server"><span>Смешанный GPU-парк</span><h3>Старый сервер</h3><p>A100 40/80 GB и RTX 2080 Ti для разных по объёму задач.</p><b>8 GPU</b></a>
+                <a class="brand-card fresh" href="servers.html#new-server"><span>BRAIn Lab</span><h3>Новый сервер</h3><p>Четыре A100 с 80 GB памяти на каждой карте.</p><b>4 × A100 80 GB</b></a>
+                <a class="brand-card h200" href="servers.html#h200"><span>Высокопроизводительный</span><h3>H200</h3><p>Восемь H200 для больших моделей. Для входа требуется VPN.</p><b>8 × H200</b></a>
+                <a class="brand-card cloud" href="servers.html#mlsub"><span>Облачная очередь</span><h3>mlsub / Cloud.ru</h3><p>Отдельный сервис запуска задач без личного аккаунта Cloud.ru.</p><b>H100 по очереди</b></a>
+                <a class="brand-card external" href="servers.html#yandex"><span>Внешний ресурс</span><h3>Яндекс-сервер</h3><p>Доступ выдаёт другая команда лаборатории.</p><b>@aloeme</b></a>
+                <article class="brand-card preview" aria-disabled="true"><span>В тестировании</span><h3>Alibaba Ascend</h3><p>Параметры и порядок доступа появятся после внутренней проверки.</p><b>Скоро</b></article>
             </div>
         </section>
 
-        <section class="onboarding-band">
-            <div><p class="ops-eyebrow">ACCESS CONTROL</p><h2>Бот хранит доступы за вас</h2></div>
-            <p>Заполните профиль один раз, выберите ресурс и затем открывайте логин, подключение и сохранённый пароль в разделе «Мои серверы».</p>
-            <a class="ops-button primary" href="https://t.me/brainlab_server_access_bot">Запустить @brainlab_server_access_bot</a>
-        </section>
+        <section class="brand-bot-band"><div><p class="brand-kicker">Один профиль</p><h2>Доступы всегда под рукой</h2><p>Бот хранит логины и зашифрованные пароли отдельно для каждого сервера. Форму профиля достаточно заполнить один раз.</p></div><a class="brand-button light" href="https://t.me/brainlab_server_access_bot">Перейти в бот</a></section>
     </main>
-    <footer class="ops-footer"><span>BRAIn Lab Compute</span><span>Документация без паролей и API-ключей</span><a href="llms.txt">Для агентов</a></footer>
+    <footer class="brand-footer"><img src="assets/brain_logo_notag.png" alt="BRAIn Lab"><span>Basic Research of Artificial Intelligence</span><a href="llms.txt">Информация для агентов</a></footer>
 </body>
 </html>

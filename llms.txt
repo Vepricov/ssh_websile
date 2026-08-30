@@ -1,25 +1,25 @@
-# BRAIn Lab Compute
+# BRAIn Lab servers
 
 Public, secret-free documentation for users and automation agents.
 
 ## Canonical public resources
 - Machine-readable catalog: /servers.json
-- Human resource catalog: /servers.html
-- shkodnik_opt: /servers.html#shkodnik-opt
-- brain_lab: /servers.html#brain-lab
-- vv_h200: /servers.html#vv-h200
+- Human catalog: /servers.html
+- Старый сервер: /servers.html#old-server
+- Новый сервер: /servers.html#new-server
+- H200: /servers.html#h200
 - mlsub / Cloud.ru: /servers.html#mlsub
-- External Yandex resource: /servers.html#yandex
+- Яндекс-сервер: /servers.html#yandex
 - Alibaba Ascend preview: /servers.html#alibaba-ascend
-- Usage rules: /rules.html
+- Rules: /rules.html
 - General SSH/Python/Linux/tmux guides: /tools.html
 
-## Compute routing
-1. Check suitable free GPUs only on shkodnik_opt, brain_lab, or vv_h200.
-2. If no suitable GPU is free, submit through mlsub to the Cloud.ru queue.
-3. mlsub is a separate compute service. Access is delivered through brain_lab, but it is not another SSH server.
-4. vv_h200 requires the documented VPN/ProxyJump path.
-5. Never infer passwords, API keys, private IPs, or unlisted hosts from this documentation.
+## Rules for agents
+1. Use the public resource names above. Do not expose or assume an administrator's local SSH aliases.
+2. Connection commands, usernames and passwords are personal and come only from the Telegram access bot.
+3. H200 requires VPN. Use the current user-specific instructions returned with access.
+4. mlsub is a separate compute service, not another SSH server.
+5. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
 
 ## Access
 Use https://t.me/brainlab_server_access_bot for managed resources. The Yandex resource is external and is handled by @aloeme. Alibaba Ascend is testing-only and cannot be requested.
