@@ -131,16 +131,6 @@ function setActiveNavLink() {
     });
 }
 
-// Navbar background change on scroll
-window.addEventListener('scroll', function() {
-    const navbar = document.querySelector('.navbar');
-    if (window.scrollY > 50) {
-        navbar.style.background = 'rgba(26, 54, 93, 0.98)';
-    } else {
-        navbar.style.background = 'rgba(26, 54, 93, 0.95)';
-    }
-});
-
 // Add keyboard navigation support
 document.addEventListener('keydown', function(e) {
     // Close mobile menu with Escape key
@@ -202,29 +192,3 @@ function addLoadingState(button, originalText) {
         button.style.opacity = '1';
     };
 }
-
-// Performance optimization: Debounce function
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-// Optimized scroll handler
-const optimizedScrollHandler = debounce(function() {
-    const navbar = document.querySelector('.navbar');
-    if (window.scrollY > 50) {
-        navbar.style.background = 'rgba(26, 54, 93, 0.98)';
-    } else {
-        navbar.style.background = 'rgba(26, 54, 93, 0.95)';
-    }
-}, 10);
-
-window.addEventListener('scroll', optimizedScrollHandler);
-
