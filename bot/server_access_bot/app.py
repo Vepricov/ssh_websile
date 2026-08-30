@@ -1,7 +1,9 @@
 import asyncio
 import html
 import logging
+import secrets
 from collections.abc import Sequence
+from urllib.parse import urlencode, urlparse
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -23,9 +25,9 @@ from aiogram.types import (
 )
 
 from .config import Settings
-from .domain import Application, ProvisionedAccess
+from .domain import Application, Profile, ProvisionedAccess, ServerRequest
 from .provisioning import ProvisioningError, SshProvisioner
-from .service import AccessService, ValidationError, validate
+from .service import AccessService, ValidationError, validate, validate_profile
 from .sheets import GoogleSheetsRepository
 from .storage import Storage
 from .webapp import WebAppPayloadError, parse_web_app_data
@@ -33,6 +35,7 @@ from .webapp import WebAppPayloadError, parse_web_app_data
 LOGGER = logging.getLogger(__name__)
 RULES_URL = "https://vepricov.github.io/ssh_websile"
 FORM_URL = f"{RULES_URL}/access-form.html"
+SERVER_FORM_URL = f"{RULES_URL}/server-form.html"
 VPN_NOTE = (
     "ВАЖНО: перед подключением к H200 получите VPN. Напишите ФИО и "
     "физтеховскую почту Диме @undef1ne5 с просьбой сделать VPN."
@@ -52,8 +55,14 @@ MAIN_MENU = ReplyKeyboardMarkup(
     keyboard=[
         [
             KeyboardButton(
-                text="Открыть форму доступа",
+                text="Мой профиль",
                 web_app=WebAppInfo(url=FORM_URL),
+            )
+        ],
+        [
+            KeyboardButton(
+                text="Добавиться на сервер",
+                web_app=WebAppInfo(url=SERVER_FORM_URL),
             )
         ],
         [KeyboardButton(text="Мои серверы")],
@@ -62,16 +71,52 @@ MAIN_MENU = ReplyKeyboardMarkup(
 )
 
 
-def confirmation_keyboard() -> InlineKeyboardMarkup:
+def confirmation_keyboard(request_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Всё верно, создать доступ", callback_data="form:submit"
+                    text="Всё верно, создать доступ",
+                    callback_data=f"form:submit:{request_id}",
                 )
             ],
-            [InlineKeyboardButton(text="Отмена", callback_data="form:cancel")],
+            [
+                InlineKeyboardButton(
+                    text="Отмена", callback_data=f"form:cancel:{request_id}"
+                )
+            ],
         ]
+    )
+
+
+def server_dashboard_keyboard(
+    accesses: Sequence[ProvisionedAccess],
+) -> InlineKeyboardMarkup | None:
+    existing = {access.host for access in accesses}
+    rows = [
+        [InlineKeyboardButton(text=f"➕ {name}", callback_data=f"servers:add:{host}")]
+        for host, name in SERVER_NAMES.items()
+        if host not in existing
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
+def server_request_menu(host: str) -> ReplyKeyboardMarkup:
+    if host not in SERVER_NAMES:
+        raise ValueError(f"unknown server: {host}")
+    url = f"{SERVER_FORM_URL}?{urlencode({'server': host})}"
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(
+                    text=f"Открыть заявку: {SERVER_NAMES[host]}",
+                    web_app=WebAppInfo(url=url),
+                )
+            ],
+            [KeyboardButton(text="Главное меню")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
     )
 
 
@@ -85,6 +130,21 @@ def application_from_data(user: User, data: dict[str, object]) -> Application:
         recommender=str(data["recommender"]),
         activity=str(data.get("activity", "")),
         servers=tuple(str(host) for host in data["servers"]),
+    )
+
+
+def application_from_request(profile: Profile, request: ServerRequest) -> Application:
+    if profile.telegram_user_id != request.telegram_user_id:
+        raise ValueError("profile and server request belong to different users")
+    return Application(
+        telegram_user_id=request.telegram_user_id,
+        telegram_username=request.telegram_username,
+        full_name=profile.full_name,
+        server_username=request.server_username,
+        access_term=request.access_term,
+        recommender=profile.recommender,
+        activity=request.activity,
+        servers=request.servers,
     )
 
 
@@ -113,20 +173,43 @@ def application_summary(data: dict[str, object]) -> str:
     )
 
 
-def credentials_text(accesses: Sequence[ProvisionedAccess]) -> str:
-    sections = ["Доступ к вашим серверам:"]
-    for access in accesses:
-        lines = [SERVER_NAMES[access.host], f"Username: {access.username}"]
+def server_dashboard_text(accesses: Sequence[ProvisionedAccess]) -> str:
+    by_host = {access.host: access for access in accesses}
+    sections = ["<b>Мои серверы</b>"]
+    for host, name in SERVER_NAMES.items():
+        access = by_host.get(host)
+        if access is None:
+            sections.append(f"○ <b>{html.escape(name)}</b>\nДоступ ещё не добавлен.")
+            continue
+        lines = [
+            f"✅ <b>{html.escape(name)}</b>",
+            f"Ник: <code>{html.escape(access.username)}</code>",
+        ]
         if access.password:
-            lines.append(f"Password: {access.password}")
+            lines.append(f"Пароль: <code>{html.escape(access.password)}</code>")
         if access.connection:
-            lines.append(f"Подключение: {access.connection}")
+            lines.append(f"Подключение: <code>{html.escape(access.connection)}</code>")
         if access.group_url:
-            lines.append(f"Telegram-группа: {access.group_url}")
+            parsed_url = urlparse(access.group_url)
+            if (
+                parsed_url.scheme == "https"
+                and parsed_url.netloc == "t.me"
+                and parsed_url.path.strip("/")
+                and parsed_url.username is None
+                and parsed_url.password is None
+            ):
+                safe_url = html.escape(access.group_url, quote=True)
+                lines.append(f'Telegram-группа: <a href="{safe_url}">открыть</a>')
+            else:
+                lines.append(f"Telegram-группа: {html.escape(access.group_url)}")
         if access.host == "vv_h200":
-            lines.append(VPN_NOTE)
+            lines.append(html.escape(VPN_NOTE))
         sections.append("\n".join(lines))
-    sections.append(f"Правила и полезная информация: {RULES_URL}")
+    sections.append(
+        "☁️ <b>Яндекс-сервер</b>\n"
+        'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.'
+    )
+    sections.append(f'Правила: <a href="{RULES_URL}">открыть сайт</a>')
     return "\n\n".join(sections)
 
 
@@ -154,8 +237,8 @@ def build_router(
             )
             return
         await message.answer(
-            "Я создаю и храню ваши доступы к GPU-серверам. "
-            "Откройте форму или посмотрите уже выданные доступы.",
+            "Сначала заполните профиль, затем выберите сервер. "
+            "Все сохранённые доступы находятся в разделе «Мои серверы».",
             reply_markup=MAIN_MENU,
         )
 
@@ -168,19 +251,39 @@ def build_router(
         ):
             return
         try:
-            application = parse_web_app_data(
+            submission = parse_web_app_data(
                 message.from_user, message.web_app_data.data
             )
+            if isinstance(submission, Profile):
+                validate_profile(submission)
+                await asyncio.to_thread(service.storage.save_profile, submission)
+                await state.clear()
+                await message.answer(
+                    "Профиль сохранён. Теперь можно выбрать сервер.",
+                    reply_markup=MAIN_MENU,
+                )
+                return
+            profile = await asyncio.to_thread(
+                service.storage.profile_for, message.from_user.id
+            )
+            if profile is None:
+                await message.answer(
+                    "Сначала заполните «Мой профиль».", reply_markup=MAIN_MENU
+                )
+                return
+            application = application_from_request(profile, submission)
             validate(application)
         except (WebAppPayloadError, ValidationError) as error:
             await message.answer(str(error), reply_markup=MAIN_MENU)
             return
         data = application_data(application)
+        request_id = secrets.token_urlsafe(8)
+        data["request_id"] = request_id
         await state.set_data(data)
         await state.set_state(Form.confirm)
         await message.answer(
             application_summary(data),
-            reply_markup=confirmation_keyboard(),
+            reply_markup=confirmation_keyboard(request_id),
         )
 
     @router.message(Command("cancel"))
@@ -189,20 +292,29 @@ def build_router(
         await state.clear()
         await message.answer("Анкета отменена.", reply_markup=MAIN_MENU)
 
-    @router.callback_query(F.data == "form:cancel")
+    @router.callback_query(F.data.startswith("form:cancel:"))
     async def cancel_callback(callback: CallbackQuery, state: FSMContext) -> None:
+        data = await state.get_data()
+        request_id = (callback.data or "").rsplit(":", 1)[-1]
+        if data.get("request_id") != request_id:
+            await callback.answer("Эта заявка уже неактуальна.", show_alert=True)
+            return
         await state.clear()
         await callback.answer()
         if callback.message:
             await callback.message.edit_text("Анкета отменена.")
 
-    @router.callback_query(Form.confirm, F.data == "form:submit")
+    @router.callback_query(Form.confirm, F.data.startswith("form:submit:"))
     async def submit(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
         if callback.message is None:
             return
+        data = await state.get_data()
+        request_id = (callback.data or "").rsplit(":", 1)[-1]
+        if data.get("request_id") != request_id:
+            await callback.answer("Эта заявка уже неактуальна.", show_alert=True)
+            return
         await callback.answer("Создаю доступы…")
         await callback.message.edit_reply_markup(reply_markup=None)
-        data = await state.get_data()
         try:
             application = application_from_data(callback.from_user, data)
             await asyncio.to_thread(service.submit, application)
@@ -229,10 +341,10 @@ def build_router(
             LOGGER.exception("Google Sheets synchronization failed")
         await state.clear()
         secret_message = await callback.message.answer(
-            f"<pre>{html.escape(credentials_text(accesses))}</pre>\n\n"
+            f"{server_dashboard_text(accesses)}\n\n"
             f"Сообщение удалится через {credential_ttl // 60} мин.",
             protect_content=True,
-            reply_markup=MAIN_MENU,
+            reply_markup=server_dashboard_keyboard(accesses),
         )
         asyncio.create_task(
             delete_later(
@@ -247,22 +359,33 @@ def build_router(
         accesses = await asyncio.to_thread(
             service.credentials_for, message.from_user.id
         )
-        if not accesses:
-            await message.answer(
-                "У вас пока нет сохранённых доступов.", reply_markup=MAIN_MENU
-            )
-            return
         secret_message = await message.answer(
-            f"<pre>{html.escape(credentials_text(accesses))}</pre>\n\n"
+            f"{server_dashboard_text(accesses)}\n\n"
             f"Сообщение удалится через {credential_ttl // 60} мин.",
             protect_content=True,
-            reply_markup=MAIN_MENU,
+            reply_markup=server_dashboard_keyboard(accesses),
         )
         asyncio.create_task(
             delete_later(
                 bot, secret_message.chat.id, secret_message.message_id, credential_ttl
             )
         )
+
+    @router.callback_query(F.data.startswith("servers:add:"))
+    async def add_server(callback: CallbackQuery) -> None:
+        host = (callback.data or "").rsplit(":", 1)[-1]
+        if host not in SERVER_NAMES or callback.message is None:
+            await callback.answer("Неизвестный сервер.", show_alert=True)
+            return
+        await callback.answer()
+        await callback.message.answer(
+            f"Откройте короткую заявку на {SERVER_NAMES[host]}.",
+            reply_markup=server_request_menu(host),
+        )
+
+    @router.message(F.text == "Главное меню")
+    async def main_menu(message: Message) -> None:
+        await message.answer("Главное меню.", reply_markup=MAIN_MENU)
 
     return router
 

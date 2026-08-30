@@ -91,7 +91,8 @@ h1 {
     color: var(--muted);
 }
 
-#access-form {
+#access-form,
+#server-form {
     display: grid;
     gap: 12px;
 }
@@ -370,6 +371,22 @@ textarea {
     color: var(--muted);
     font-size: 10px;
     line-height: 1.3;
+}
+
+.external-server {
+    cursor: default;
+    border-style: dashed;
+    background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.external-server:hover {
+    transform: none;
+}
+
+.external-server a {
+    color: var(--accent);
+    font-weight: 800;
+    text-decoration: none;
 }
 
 .field-error {

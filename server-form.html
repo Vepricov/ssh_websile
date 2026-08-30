@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>BRAIn Lab — серверы</title>
+    <link rel="stylesheet" href="access-form.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <main class="shell">
+        <header class="form-header">
+            <div class="eyebrow"><span class="status-dot"></span>BRAIn Lab · Servers</div>
+            <h1>Добавиться на сервер</h1>
+        </header>
+
+        <form id="server-form" novalidate>
+            <section class="form-section" aria-labelledby="account-title">
+                <div class="section-number">01</div>
+                <div class="section-content">
+                    <h2 id="account-title">Учётная запись</h2>
+                    <label class="field">
+                        <span>Ник на сервере</span>
+                        <div class="input-prefix"><b>$</b><input id="server-username" name="server_username" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" maxlength="32" pattern="[a-z_][a-z0-9_\-]{0,31}" placeholder="ivan_ivanov" required></div>
+                        <small>Один ник используется на всех серверах</small>
+                    </label>
+                </div>
+            </section>
+
+            <section class="form-section" aria-labelledby="term-title">
+                <div class="section-number">02</div>
+                <div class="section-content">
+                    <h2 id="term-title">Срок доступа</h2>
+                    <div class="term-control">
+                        <label class="field date-field">
+                            <span>Дата окончания</span>
+                            <input id="access-date" name="access_date" type="date">
+                        </label>
+                        <label class="switch-card">
+                            <input id="indefinite" name="indefinite" type="checkbox">
+                            <span class="switch" aria-hidden="true"></span>
+                            <span><b>Бессрочно</b><small>Без даты окончания</small></span>
+                        </label>
+                    </div>
+                    <p class="field-error" id="term-error" role="alert"></p>
+                </div>
+            </section>
+
+            <section class="form-section" aria-labelledby="servers-title">
+                <div class="section-number">03</div>
+                <div class="section-content">
+                    <h2 id="servers-title">Серверы</h2>
+                    <p class="section-hint">Можно выбрать несколько</p>
+                    <div class="server-grid">
+                        <label class="server-card">
+                            <input type="checkbox" name="servers" value="shkodnik_opt">
+                            <span class="server-check" aria-hidden="true">✓</span>
+                            <span class="server-kicker">MIPT</span>
+                            <b>Старый сервер</b>
+                            <small>RTX 2080 · A100 40/80 GB</small>
+                        </label>
+                        <label class="server-card">
+                            <input type="checkbox" name="servers" value="brain_lab">
+                            <span class="server-check" aria-hidden="true">✓</span>
+                            <span class="server-kicker">BRAINLAB</span>
+                            <b>Новый сервер</b>
+                            <small>4 × A100 80 GB</small>
+                        </label>
+                        <label class="server-card">
+                            <input type="checkbox" name="servers" value="vv_h200">
+                            <span class="server-check" aria-hidden="true">✓</span>
+                            <span class="server-kicker">VV</span>
+                            <b>H200</b>
+                            <small>8 × H200 140 GB · нужен VPN</small>
+                        </label>
+                        <article class="server-card external-server">
+                            <span class="server-kicker">YANDEX</span>
+                            <b>Яндекс-сервер</b>
+                            <small>Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a></small>
+                        </article>
+                    </div>
+                    <p class="field-error" id="servers-error" role="alert"></p>
+                </div>
+            </section>
+
+            <section class="form-section" aria-labelledby="activity-title">
+                <div class="section-number">04</div>
+                <div class="section-content">
+                    <h2 id="activity-title">Задачи</h2>
+                    <label class="field">
+                        <span>Что планируете делать <i>необязательно</i></span>
+                        <textarea id="activity" name="activity" maxlength="500" rows="4" placeholder="Например: fine-tuning LLM, обучение CV-модели, эксперименты по оптимизации"></textarea>
+                        <small class="counter"><span id="activity-count">0</span>/500</small>
+                    </label>
+                </div>
+            </section>
+
+            <div id="form-error" class="form-error" role="alert" hidden></div>
+
+            <div class="submit-dock">
+                <button id="submit-button" class="submit-button" type="submit">
+                    <span>Отправить заявку</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </button>
+            </div>
+        </form>
+    </main>
+    <script src="server-form.js"></script>
+</body>
+</html>

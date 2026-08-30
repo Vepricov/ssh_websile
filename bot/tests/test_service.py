@@ -1,9 +1,10 @@
+import sqlite3
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from server_access_bot.domain import Application, ProvisionedAccess
+from server_access_bot.domain import Application, Profile, ProvisionedAccess
 from server_access_bot.service import AccessService, ValidationError, validate
 from server_access_bot.storage import Storage
 
@@ -26,6 +27,51 @@ class FakeProvisioner:
             group_url="https://t.me/example",
             created=True,
         )
+
+
+def test_profile_is_saved_without_server_fields(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    profile = Profile(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        recommender="Bob Jones",
+    )
+
+    storage.save_profile(profile)
+
+    assert storage.profile_for(101) == profile
+    assert storage.server_username_for(101) is None
+
+
+def test_profile_storage_is_added_to_an_existing_database(tmp_path: Path) -> None:
+    database = tmp_path / "bot.sqlite3"
+    Storage(database, b"0" * 32)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO users (
+                telegram_user_id, telegram_username, full_name, server_username,
+                access_term, recommender, activity
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                101,
+                "alice_tg",
+                "Alice Smith",
+                "alice",
+                "бессрочно",
+                "Bob Jones",
+                "fine-tuning",
+            ),
+        )
+        connection.execute("DROP TABLE profiles")
+
+    storage = Storage(database, b"0" * 32)
+
+    assert storage.profile_for(101) == Profile(
+        101, "alice_tg", "Alice Smith", "Bob Jones"
+    )
 
 
 def test_access_term_accepts_only_indefinite_or_current_iso_date() -> None:

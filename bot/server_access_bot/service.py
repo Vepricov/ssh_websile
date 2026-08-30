@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
-from .domain import Application, ProvisionedAccess
+from .domain import Application, Profile, ProvisionedAccess
 from .storage import Storage
 
 
@@ -45,9 +45,22 @@ def _access_term_ok(value: str) -> bool:
         return False
 
 
-def validate(application: Application) -> None:
-    if not _human_name(application.full_name):
+def validate_profile(profile: Profile) -> None:
+    if not _human_name(profile.full_name):
         raise ValidationError("Укажите имя и фамилию.")
+    if not _recommender_ok(profile.recommender):
+        raise ValidationError("Укажите имя или Telegram-ник рекомендателя.")
+
+
+def validate(application: Application) -> None:
+    validate_profile(
+        Profile(
+            telegram_user_id=application.telegram_user_id,
+            telegram_username=application.telegram_username,
+            full_name=application.full_name,
+            recommender=application.recommender,
+        )
+    )
     if not USERNAME_RE.fullmatch(application.server_username):
         raise ValidationError(
             "Некорректный серверный ник: нужны строчные латинские буквы, "
@@ -57,8 +70,6 @@ def validate(application: Application) -> None:
         raise ValidationError(
             "Укажите корректный срок доступа: сегодняшнюю или будущую дату либо «бессрочно»."
         )
-    if not _recommender_ok(application.recommender):
-        raise ValidationError("Укажите имя или Telegram-ник рекомендателя.")
     if not application.servers:
         raise ValidationError("Выберите хотя бы один сервер.")
     unknown = set(application.servers) - ALLOWED_HOSTS

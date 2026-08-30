@@ -3,42 +3,57 @@ import json
 import pytest
 from aiogram.types import User
 
+from server_access_bot.domain import Profile, ServerRequest
 from server_access_bot.webapp import WebAppPayloadError, parse_web_app_data
 
 
 def valid_payload() -> dict[str, object]:
     return {
         "version": 1,
-        "full_name": "Alice Smith",
+        "kind": "server_request",
         "server_username": "alice",
         "access_term": "бессрочно",
-        "recommender": "Bob Jones",
         "activity": "fine-tuning",
         "servers": ["brain_lab", "vv_h200"],
     }
 
 
-def test_valid_web_app_payload_uses_telegram_message_identity() -> None:
+def test_profile_payload_uses_telegram_message_identity() -> None:
     user = User(id=4242, is_bot=False, first_name="Alice", username="alice_tg")
-    application = parse_web_app_data(
+    submission = parse_web_app_data(
         user,
         json.dumps(
             {
                 "version": 1,
+                "kind": "profile",
                 "full_name": "Alice Smith",
-                "server_username": "alice",
-                "access_term": "бессрочно",
                 "recommender": "Bob Jones",
-                "activity": "fine-tuning",
-                "servers": ["brain_lab", "vv_h200"],
                 "telegram_user_id": 999,
             }
         ),
     )
 
-    assert application.telegram_user_id == 4242
-    assert application.telegram_username == "alice_tg"
-    assert application.servers == ("brain_lab", "vv_h200")
+    assert submission == Profile(
+        telegram_user_id=4242,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        recommender="Bob Jones",
+    )
+
+
+def test_server_request_payload_uses_telegram_message_identity() -> None:
+    user = User(id=4242, is_bot=False, first_name="Alice", username="alice_tg")
+
+    submission = parse_web_app_data(user, json.dumps(valid_payload()))
+
+    assert submission == ServerRequest(
+        telegram_user_id=4242,
+        telegram_username="alice_tg",
+        server_username="alice",
+        access_term="бессрочно",
+        activity="fine-tuning",
+        servers=("brain_lab", "vv_h200"),
+    )
 
 
 def test_malformed_web_app_payload_is_rejected() -> None:
@@ -52,9 +67,9 @@ def test_malformed_web_app_payload_is_rejected() -> None:
     ("field", "value"),
     [
         ("version", 2),
-        ("full_name", None),
+        ("server_username", None),
         ("servers", "brain_lab"),
-        ("recommender", None),
+        ("kind", "unknown"),
     ],
 )
 def test_web_app_payload_shape_is_validated(field: str, value: object) -> None:
@@ -78,7 +93,7 @@ def test_oversized_web_app_payload_is_rejected() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("full_name", "A" * 121),
+        ("server_username", "a" * 33),
         ("activity", "x" * 501),
         ("servers", ["brain_lab"] * 4),
     ],

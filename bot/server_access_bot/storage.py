@@ -5,7 +5,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .domain import Application, ProvisionedAccess
+from .domain import Application, Profile, ProvisionedAccess
 
 
 class Storage:
@@ -37,6 +37,13 @@ class Storage:
                     activity TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS profiles (
+                    telegram_user_id INTEGER PRIMARY KEY,
+                    telegram_username TEXT,
+                    full_name TEXT NOT NULL,
+                    recommender TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS accesses (
                     telegram_user_id INTEGER NOT NULL REFERENCES users(telegram_user_id),
                     host TEXT NOT NULL,
@@ -55,6 +62,51 @@ class Storage:
                 );
                 """
             )
+            db.execute(
+                """
+                INSERT OR IGNORE INTO profiles (
+                    telegram_user_id, telegram_username, full_name, recommender
+                )
+                SELECT telegram_user_id, telegram_username, full_name, recommender
+                FROM users
+                """
+            )
+
+    def save_profile(self, profile: Profile) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO profiles (
+                    telegram_user_id, telegram_username, full_name, recommender
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(telegram_user_id) DO UPDATE SET
+                    telegram_username=excluded.telegram_username,
+                    full_name=excluded.full_name,
+                    recommender=excluded.recommender,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    profile.telegram_user_id,
+                    profile.telegram_username,
+                    profile.full_name,
+                    profile.recommender,
+                ),
+            )
+
+    def profile_for(self, telegram_user_id: int) -> Profile | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM profiles WHERE telegram_user_id = ?",
+                (telegram_user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Profile(
+            telegram_user_id=telegram_user_id,
+            telegram_username=row["telegram_username"],
+            full_name=str(row["full_name"]),
+            recommender=str(row["recommender"]),
+        )
 
     def save_application(self, application: Application) -> None:
         with self._connect() as db:
