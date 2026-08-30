@@ -34,8 +34,8 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
    the Unix username but explicitly state that their old password is not stored.
    The Yandex server links to `@aloeme` and is never provisioned by this bot.
    Link previews are disabled, so Telegram does not attach the contact card.
-10. Credential messages are protected from forwarding and deleted after five
-   minutes.
+10. Credential messages are protected from forwarding and remain available in
+    the private chat until the user deletes them.
 11. A later request only provisions newly selected servers. Existing passwords
    are never rotated.
 12. `/demo` is restricted to `ACCESS_BOT_DEMO_USER_IDS` and exercises both
@@ -45,7 +45,10 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
     processes hold at least 4 GB VRAM on a GPU with at most 2% utilization for
     at least 30 minutes. The bot never stops processes automatically and sends
     at most one reminder per 12 hours. Unknown or ambiguous Unix usernames are
-    reported only to the configured admins.
+    reported only to the configured admins. A linked owner can explicitly stop
+    the exact reported processes after confirmation. Action buttons do not
+    expire, but PID ownership and process start time are rechecked before every
+    signal.
 
 ## H200 access order
 

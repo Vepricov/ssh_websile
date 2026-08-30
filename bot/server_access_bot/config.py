@@ -12,7 +12,6 @@ class Settings:
     google_service_account_file: Path
     spreadsheet_id: str
     sheet_id: int
-    credential_message_ttl_seconds: int = 300
     demo_user_ids: frozenset[int] = frozenset()
     admin_user_ids: frozenset[int] = frozenset()
     gpu_monitor_enabled: bool = True
@@ -55,9 +54,6 @@ class Settings:
                 "13wqQBDOwjVsuSc6nDctkUcjAs2BVIbmJd23kEVNbU98",
             ),
             sheet_id=int(os.environ.get("GOOGLE_SHEET_ID", "1269070972")),
-            credential_message_ttl_seconds=int(
-                os.environ.get("CREDENTIAL_MESSAGE_TTL_SECONDS", "300")
-            ),
             demo_user_ids=demo_user_ids,
             admin_user_ids=admin_user_ids,
             gpu_monitor_enabled=os.environ.get(

@@ -2,14 +2,13 @@ import re
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 
-from .domain import ProcessIdentity
-from .domain import GpuProcessAction
+from .domain import GpuProcessAction, ProcessIdentity
 from .storage import Storage
-
 
 HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200"})
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 HELPER = "/usr/local/sbin/hermes-gpu-process-control"
+PROCESS_ACTION_NEVER_EXPIRES_AT = 2**63 - 1
 
 
 class ProcessControlError(RuntimeError):
@@ -201,7 +200,7 @@ def signal_gpu_process_action(
         sending_status,
         final_status,
         now=now,
-        expires_at=now + 300,
+        expires_at=PROCESS_ACTION_NEVER_EXPIRES_AT,
         term_requested_at=now if signal_name == "TERM" else None,
     )
     storage.record_event(

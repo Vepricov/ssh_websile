@@ -14,9 +14,12 @@ from dataclasses import dataclass
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .domain import GpuIdleCandidate, GpuIdleIncident, GpuProcessAction
-from .process_control import GpuProcessController, ProcessControlError
+from .process_control import (
+    PROCESS_ACTION_NEVER_EXPIRES_AT,
+    GpuProcessController,
+    ProcessControlError,
+)
 from .storage import Storage
-
 
 Runner = Callable[[str, tuple[str, ...]], tuple[int, str]]
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
@@ -26,7 +29,11 @@ PUBLIC_SERVER_NAMES = {
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200",
 }
-PROCESS_ACTION_TTL_SECONDS = 900
+SERVER_LOCATIONS = {
+    "shkodnik_opt": "старом сервере (MIPT)",
+    "brain_lab": "новом сервере (BrainLab)",
+    "vv_h200": "H200",
+}
 
 
 @dataclass(frozen=True)
@@ -299,13 +306,13 @@ def format_admin_idle_notification(
     ]
     message_lines = []
     for incident in incidents:
-        server_name = PUBLIC_SERVER_NAMES.get(incident.host, incident.host)
+        server_location = SERVER_LOCATIONS.get(incident.host, incident.host)
         message_lines.append(
-            f"Привет! На сервере {html.escape(server_name)} процесс на GPU "
-            f"{incident.gpu_index} занимает "
-            f"{incident.used_memory_mb / 1024:.1f} GB VRAM при загрузке карты "
-            f"не выше {policy.utilization_threshold_percent}% уже не менее "
-            f"{policy.minimum_duration_seconds // 60} минут. "
+            f"Привет! На {html.escape(server_location)} процесс на GPU "
+            f"{incident.gpu_index} уже не менее "
+            f"{policy.minimum_duration_seconds // 60} минут занимает "
+            f"{incident.used_memory_mb / 1024:.1f} GB VRAM, а загрузка карты "
+            f"остаётся не выше {policy.utilization_threshold_percent}%. "
             f"PID: {', '.join(str(pid) for pid in incident.pids)}."
         )
     message_lines.append(
@@ -359,7 +366,7 @@ async def deliver_gpu_idle_incidents(
                                 server_username=incident.server_username,
                                 identities=identities,
                                 status="pending",
-                                expires_at=now + PROCESS_ACTION_TTL_SECONDS,
+                                expires_at=PROCESS_ACTION_NEVER_EXPIRES_AT,
                             ),
                         )
                         server_name = PUBLIC_SERVER_NAMES.get(

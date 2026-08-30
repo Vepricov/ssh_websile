@@ -10,7 +10,6 @@ from urllib.parse import urlencode, urlparse
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatType, ParseMode
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -42,12 +41,12 @@ from .monitoring import (
     GpuIdlePolicy,
     run_gpu_idle_monitor,
 )
-from .provisioning import ProvisioningError, SshProvisioner
 from .process_control import (
     GpuProcessController,
     ProcessControlError,
     signal_gpu_process_action,
 )
+from .provisioning import ProvisioningError, SshProvisioner
 from .service import AccessService, ValidationError, validate, validate_profile
 from .sheets import (
     GoogleSheetsRepository,
@@ -583,18 +582,9 @@ def server_dashboard_text(
     return "\n\n".join(sections)
 
 
-async def delete_later(bot: Bot, chat_id: int, message_id: int, delay: int) -> None:
-    await asyncio.sleep(delay)
-    try:
-        await bot.delete_message(chat_id, message_id)
-    except TelegramBadRequest:
-        pass
-
-
 def build_router(
     service: AccessService,
     sheets: GoogleSheetsRepository,
-    credential_ttl: int,
     demo_user_ids: frozenset[int] = frozenset(),
     admin_user_ids: frozenset[int] = frozenset(),
     process_controller: GpuProcessController | None = None,
@@ -686,17 +676,11 @@ def build_router(
                 service.storage.registry_services_for, application.telegram_user_id
             ),
         )
-        secret_message = await bot.send_message(
+        await bot.send_message(
             chat_id,
-            f"{server_dashboard_text(accesses, registry)}\n\n"
-            f"Сообщение удалится через {credential_ttl // 60} мин.",
+            server_dashboard_text(accesses, registry),
             protect_content=True,
             reply_markup=server_dashboard_keyboard(accesses, registered_services),
-        )
-        asyncio.create_task(
-            delete_later(
-                bot, secret_message.chat.id, secret_message.message_id, credential_ttl
-            )
         )
         return True
 
@@ -1197,7 +1181,7 @@ def build_router(
 
     @router.message(Command("servers"))
     @router.message(F.text.in_({"Мои серверы", "🔐 Мои серверы"}))
-    async def my_servers(message: Message, state: FSMContext, bot: Bot) -> None:
+    async def my_servers(message: Message, state: FSMContext) -> None:
         if message.from_user is None or message.chat.type != ChatType.PRIVATE:
             return
         await state.clear()
@@ -1207,18 +1191,12 @@ def build_router(
         registry = await asyncio.to_thread(
             service.storage.registry_match_for, message.from_user.id
         )
-        secret_message = await message.answer(
-            f"{server_dashboard_text(accesses, registry)}\n\n"
-            f"Сообщение удалится через {credential_ttl // 60} мин.",
+        await message.answer(
+            server_dashboard_text(accesses, registry),
             protect_content=True,
             reply_markup=server_dashboard_keyboard(
                 accesses, registry.servers if registry else ()
             ),
-        )
-        asyncio.create_task(
-            delete_later(
-                bot, secret_message.chat.id, secret_message.message_id, credential_ttl
-            )
         )
 
     @router.message(Command("profile"))
@@ -1378,7 +1356,6 @@ async def run(settings: Settings) -> None:
         build_router(
             service,
             sheets,
-            settings.credential_message_ttl_seconds,
             settings.demo_user_ids,
             settings.admin_user_ids,
             process_controller,

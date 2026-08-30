@@ -181,7 +181,7 @@ def test_notification_uses_public_server_name_and_marks_delivery(tmp_path) -> No
     callback_data = keyboard.inline_keyboard[0][0].callback_data
     assert callback_data.startswith("gpu:stop:")
     token = callback_data.rsplit(":", 1)[-1]
-    action = storage.gpu_process_action_for(token, 101, now=1800)
+    action = storage.gpu_process_action_for(token, 101, now=10**12)
     assert action is not None
     assert action.identities == (
         ProcessIdentity(101, 1001),
@@ -246,10 +246,46 @@ def test_unmapped_server_username_is_reported_only_to_admin(tmp_path) -> None:
     assert "unknown" in bot.messages[0][1]
     assert "Кому написать" in bot.messages[0][1]
     assert "в общей беседе или таблице" in bot.messages[0][1]
-    assert "Привет! На сервере H200" in bot.messages[0][1]
+    assert "Привет! На H200" in bot.messages[0][1]
     assert "GPU 7" in bot.messages[0][1]
     assert "20.0 GB VRAM" in bot.messages[0][1]
     assert "PID: 303" in bot.messages[0][1]
     assert "не менее 30 минут" in bot.messages[0][1]
     assert bot.messages[0][2]["protect_content"] is False
     assert "reply_markup" not in bot.messages[0][2]
+
+
+def test_admin_notification_uses_natural_server_phrase(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    incident = GpuIdleIncident(
+        key="brain_lab:GPU-aaaa:unknown",
+        host="brain_lab",
+        gpu_index=3,
+        server_username="unknown",
+        used_memory_mb=44237,
+        pids=(2805527, 3515658),
+        first_seen_at=0,
+        last_seen_at=1800,
+    )
+
+    class FakeBot:
+        def __init__(self) -> None:
+            self.messages = []
+
+        async def send_message(self, chat_id: int, text: str, **kwargs) -> None:
+            self.messages.append((chat_id, text, kwargs))
+
+    bot = FakeBot()
+    asyncio.run(
+        deliver_gpu_idle_incidents(
+            bot,
+            storage,
+            (incident,),
+            admin_user_ids=frozenset({999}),
+            now=1800,
+        )
+    )
+
+    text = bot.messages[0][1]
+    assert "Привет! На новом сервере (BrainLab)" in text
+    assert "На сервере Новый сервер" not in text

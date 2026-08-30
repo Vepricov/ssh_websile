@@ -123,6 +123,7 @@ def test_term_then_kill_requires_delay_and_each_signal_is_single_use(tmp_path) -
     )
     assert term.status == "term_sent"
     assert term.term_requested_at == 100
+    assert storage.gpu_process_action_for("safe-token", 101, now=10**12) is not None
 
     with pytest.raises(ProcessControlError):
         signal_gpu_process_action(
