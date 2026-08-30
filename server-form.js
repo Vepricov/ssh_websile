@@ -12,7 +12,11 @@
     const formError = document.getElementById("form-error");
     const activity = document.getElementById("activity");
     const activityCount = document.getElementById("activity-count");
+    const serverUsername = document.getElementById("server-username");
+    const storageKey = "brainlab_server_request_v1";
     let submitted = false;
+    let touched = false;
+    let saveTimer;
 
     telegram?.ready();
     telegram?.expand();
@@ -31,13 +35,85 @@
     const todayIso = `${moscowDateParts.year}-${moscowDateParts.month}-${moscowDateParts.day}`;
     accessDate.min = todayIso;
 
-    const requestedServer = new URLSearchParams(window.location.search).get("server");
-    const requestedCheckbox = Array.from(
-        form.querySelectorAll('input[name="servers"]'),
-    ).find((input) => input.value === requestedServer);
-    if (requestedCheckbox) {
-        requestedCheckbox.checked = true;
+    function loadDraft() {
+        const finish = (rawDraft) => {
+            let draft = null;
+            try {
+                draft = JSON.parse(rawDraft || "null");
+            } catch {
+                // Ignore a malformed cloud draft.
+            }
+            if (touched) {
+                applyRequestedServer();
+                return;
+            }
+            if (!draft) {
+                applyRequestedServer();
+                return;
+            }
+            if (typeof draft.server_username === "string") {
+                serverUsername.value = draft.server_username;
+            }
+            if (typeof draft.activity === "string") {
+                activity.value = draft.activity;
+                activityCount.textContent = String(activity.value.length);
+            }
+            if (draft.access_term === "бессрочно") {
+                indefinite.checked = true;
+                accessDate.disabled = true;
+            } else if (
+                typeof draft.access_term === "string"
+                && draft.access_term >= todayIso
+            ) {
+                accessDate.value = draft.access_term;
+            }
+            if (Array.isArray(draft.servers)) {
+                for (const input of form.querySelectorAll('input[name="servers"]')) {
+                    input.checked = draft.servers.includes(input.value);
+                }
+            }
+            applyRequestedServer();
+        };
+        if (!telegram?.CloudStorage?.getItem) {
+            finish(null);
+            return;
+        }
+        telegram.CloudStorage.getItem(storageKey, (error, value) => {
+            finish(error ? null : value);
+        });
     }
+
+    function saveDraft() {
+        if (!telegram?.CloudStorage?.setItem) {
+            return;
+        }
+        telegram.CloudStorage.setItem(
+            storageKey,
+            JSON.stringify({
+                server_username: serverUsername.value,
+                access_term: indefinite.checked ? "бессрочно" : accessDate.value,
+                activity: activity.value,
+                servers: selectedServers(),
+            }),
+        );
+    }
+
+    function queueDraftSave() {
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(saveDraft, 250);
+    }
+
+    const requestedServer = new URLSearchParams(window.location.search).get("server");
+    function applyRequestedServer() {
+        const requestedCheckbox = Array.from(
+            form.querySelectorAll('input[name="servers"]'),
+        ).find((input) => input.value === requestedServer);
+        if (requestedCheckbox) {
+            requestedCheckbox.checked = true;
+        }
+    }
+
+    loadDraft();
 
     function selectedServers() {
         return Array.from(form.querySelectorAll('input[name="servers"]:checked'))
@@ -68,11 +144,13 @@
     }
 
     indefinite.addEventListener("change", () => {
+        touched = true;
         accessDate.disabled = indefinite.checked;
         if (indefinite.checked) {
             accessDate.value = "";
             setError(termError, "");
         }
+        queueDraftSave();
     });
 
     activity.addEventListener("input", () => {
@@ -80,7 +158,14 @@
     });
 
     form.addEventListener("input", () => {
+        touched = true;
         formError.hidden = true;
+        queueDraftSave();
+    });
+
+    form.addEventListener("change", () => {
+        touched = true;
+        queueDraftSave();
     });
 
     form.addEventListener("submit", (event) => {
@@ -91,7 +176,7 @@
         const payload = {
             version: 1,
             kind: "server_request",
-            server_username: document.getElementById("server-username").value.trim(),
+            server_username: serverUsername.value.trim(),
             access_term: indefinite.checked ? "бессрочно" : accessDate.value,
             activity: activity.value.trim(),
             servers: selectedServers(),
@@ -110,6 +195,8 @@
             formError.hidden = false;
             return;
         }
+        window.clearTimeout(saveTimer);
+        saveDraft();
         submitted = true;
         submitButton.disabled = true;
         submitLabel.textContent = "Отправляю…";

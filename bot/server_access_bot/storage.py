@@ -5,7 +5,11 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .domain import Application, Profile, ProvisionedAccess
+from .domain import Application, Profile, ProvisionedAccess, RegistryMatch
+
+
+class RegistryAlreadyClaimedError(ValueError):
+    pass
 
 
 class Storage:
@@ -44,6 +48,22 @@ class Storage:
                     recommender TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS registry_users (
+                    telegram_user_id INTEGER PRIMARY KEY
+                        REFERENCES profiles(telegram_user_id),
+                    source_telegram_username TEXT NOT NULL,
+                    server_username TEXT NOT NULL,
+                    access_term TEXT NOT NULL,
+                    activity TEXT NOT NULL,
+                    source_row_count INTEGER NOT NULL,
+                    confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS registry_services (
+                    telegram_user_id INTEGER NOT NULL
+                        REFERENCES profiles(telegram_user_id),
+                    host TEXT NOT NULL,
+                    PRIMARY KEY (telegram_user_id, host)
+                );
                 CREATE TABLE IF NOT EXISTS accesses (
                     telegram_user_id INTEGER NOT NULL REFERENCES users(telegram_user_id),
                     host TEXT NOT NULL,
@@ -69,6 +89,34 @@ class Storage:
                 )
                 SELECT telegram_user_id, telegram_username, full_name, recommender
                 FROM users
+                """
+            )
+            db.execute(
+                """
+                UPDATE registry_users
+                SET source_telegram_username =
+                    lower(ltrim(source_telegram_username, '@'))
+                """
+            )
+            duplicate_count = db.execute(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT source_telegram_username
+                    FROM registry_users
+                    GROUP BY source_telegram_username COLLATE NOCASE
+                    HAVING COUNT(*) > 1
+                )
+                """
+            ).fetchone()[0]
+            if duplicate_count:
+                raise RuntimeError(
+                    "registry ownership audit failed: duplicate source usernames"
+                )
+            db.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    registry_users_source_username_unique
+                ON registry_users(source_telegram_username COLLATE NOCASE)
                 """
             )
 
@@ -108,6 +156,159 @@ class Storage:
             recommender=str(row["recommender"]),
         )
 
+    def save_registry_match(
+        self,
+        telegram_user_id: int,
+        telegram_username: str | None,
+        match: RegistryMatch,
+    ) -> None:
+        if match.telegram_user_id != telegram_user_id:
+            raise RegistryAlreadyClaimedError(
+                "registry identity is not verified for this Telegram ID"
+            )
+        source_username = match.telegram_username.lstrip("@").casefold()
+        try:
+            with self._connect() as db:
+                owner = db.execute(
+                    """
+                    SELECT telegram_user_id FROM registry_users
+                    WHERE source_telegram_username = ? COLLATE NOCASE
+                    """,
+                    (source_username,),
+                ).fetchone()
+                current_link = db.execute(
+                    """
+                    SELECT source_telegram_username FROM registry_users
+                    WHERE telegram_user_id = ?
+                    """,
+                    (telegram_user_id,),
+                ).fetchone()
+                if (
+                    owner is not None
+                    and int(owner["telegram_user_id"]) != telegram_user_id
+                ):
+                    raise RegistryAlreadyClaimedError(
+                        "this registry identity is already linked"
+                    )
+                if (
+                    current_link is not None
+                    and str(current_link["source_telegram_username"]).casefold()
+                    != source_username
+                ):
+                    raise RegistryAlreadyClaimedError(
+                        "this Telegram ID is already linked to another identity"
+                    )
+                db.execute(
+                    """
+                INSERT INTO profiles (
+                    telegram_user_id, telegram_username, full_name, recommender
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(telegram_user_id) DO UPDATE SET
+                    telegram_username=excluded.telegram_username,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                    (
+                        telegram_user_id,
+                        telegram_username,
+                        match.full_name,
+                        match.recommender,
+                    ),
+                )
+                db.execute(
+                    """
+                INSERT INTO registry_users (
+                    telegram_user_id, source_telegram_username, server_username,
+                    access_term, activity, source_row_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(telegram_user_id) DO UPDATE SET
+                    source_telegram_username=excluded.source_telegram_username,
+                    server_username=excluded.server_username,
+                    access_term=excluded.access_term,
+                    activity=excluded.activity,
+                    source_row_count=excluded.source_row_count,
+                    confirmed_at=CURRENT_TIMESTAMP
+                """,
+                    (
+                        telegram_user_id,
+                        source_username,
+                        match.server_username,
+                        match.access_term,
+                        match.activity,
+                        match.source_row_count,
+                    ),
+                )
+                db.execute(
+                    "DELETE FROM registry_services WHERE telegram_user_id = ?",
+                    (telegram_user_id,),
+                )
+                db.executemany(
+                    """
+                    INSERT INTO registry_services (telegram_user_id, host)
+                    VALUES (?, ?)
+                    """,
+                    [(telegram_user_id, host) for host in match.servers],
+                )
+        except sqlite3.IntegrityError as error:
+            raise RegistryAlreadyClaimedError(
+                "this registry identity is already linked"
+            ) from error
+
+    def registry_match_for(self, telegram_user_id: int) -> RegistryMatch | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT p.full_name, p.recommender,
+                       r.source_telegram_username, r.server_username,
+                       r.access_term, r.activity, r.source_row_count
+                FROM registry_users r
+                JOIN profiles p USING (telegram_user_id)
+                WHERE r.telegram_user_id = ?
+                """,
+                (telegram_user_id,),
+            ).fetchone()
+            services = db.execute(
+                """
+                SELECT host FROM registry_services
+                WHERE telegram_user_id = ?
+                ORDER BY CASE host
+                    WHEN 'shkodnik_opt' THEN 1
+                    WHEN 'brain_lab' THEN 2
+                    WHEN 'vv_h200' THEN 3
+                    WHEN 'yandex' THEN 4
+                    ELSE 5
+                END
+                """,
+                (telegram_user_id,),
+            ).fetchall()
+        if row is None:
+            return None
+        return RegistryMatch(
+            telegram_username=str(row["source_telegram_username"]),
+            full_name=str(row["full_name"]),
+            server_username=str(row["server_username"]),
+            access_term=str(row["access_term"]),
+            recommender=str(row["recommender"]),
+            activity=str(row["activity"]),
+            servers=tuple(str(item["host"]) for item in services),
+            source_row_count=int(row["source_row_count"]),
+            telegram_user_id=telegram_user_id,
+        )
+
+    def registry_services_for(self, telegram_user_id: int) -> tuple[str, ...]:
+        match = self.registry_match_for(telegram_user_id)
+        return () if match is None else match.servers
+
+    def has_registered_service(self, telegram_user_id: int, host: str) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT 1 FROM registry_services
+                WHERE telegram_user_id = ? AND host = ?
+                """,
+                (telegram_user_id, host),
+            ).fetchone()
+        return row is not None
+
     def save_application(self, application: Application) -> None:
         with self._connect() as db:
             db.execute(
@@ -142,6 +343,14 @@ class Storage:
                 "SELECT server_username FROM users WHERE telegram_user_id = ?",
                 (telegram_user_id,),
             ).fetchone()
+            if row is None:
+                row = db.execute(
+                    """
+                    SELECT server_username FROM registry_users
+                    WHERE telegram_user_id = ?
+                    """,
+                    (telegram_user_id,),
+                ).fetchone()
         return None if row is None else str(row["server_username"])
 
     def application_for(self, telegram_user_id: int) -> Application | None:

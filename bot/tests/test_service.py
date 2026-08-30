@@ -4,9 +4,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from server_access_bot.domain import Application, Profile, ProvisionedAccess
+from server_access_bot.domain import (
+    Application,
+    Profile,
+    ProvisionedAccess,
+    RegistryMatch,
+)
 from server_access_bot.service import AccessService, ValidationError, validate
-from server_access_bot.storage import Storage
+from server_access_bot.storage import RegistryAlreadyClaimedError, Storage
 
 
 class FakeProvisioner:
@@ -72,6 +77,141 @@ def test_profile_storage_is_added_to_an_existing_database(tmp_path: Path) -> Non
     assert storage.profile_for(101) == Profile(
         101, "alice_tg", "Alice Smith", "Bob Jones"
     )
+
+
+def test_confirmed_registry_match_populates_profile_and_services(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    match = RegistryMatch(
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="fine-tuning",
+        servers=("brain_lab", "yandex"),
+        source_row_count=2,
+        telegram_user_id=101,
+    )
+
+    storage.save_registry_match(101, "alice_tg", match)
+
+    assert storage.profile_for(101) == Profile(
+        101, "alice_tg", "Alice Smith", "Bob Jones"
+    )
+    assert storage.registry_match_for(101) == match
+    assert storage.registry_services_for(101) == ("brain_lab", "yandex")
+    assert storage.server_username_for(101) == "alice"
+
+
+def test_registry_identity_can_only_be_claimed_by_one_telegram_id(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    match = RegistryMatch(
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="fine-tuning",
+        servers=("brain_lab",),
+        source_row_count=1,
+        telegram_user_id=101,
+    )
+    storage.save_registry_match(101, "alice_tg", match)
+
+    try:
+        storage.save_registry_match(202, "alice_tg", match)
+    except RegistryAlreadyClaimedError:
+        pass
+    else:
+        raise AssertionError("registry identity was claimed by a second Telegram ID")
+
+    assert storage.profile_for(202) is None
+    assert storage.registry_match_for(202) is None
+
+
+def test_registry_link_preserves_an_existing_edited_profile(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    storage.save_profile(Profile(101, "alice_tg", "Alice Corrected", "@new_ref"))
+
+    storage.save_registry_match(
+        101,
+        "alice_tg",
+        RegistryMatch(
+            telegram_username="alice_tg",
+            full_name="Alice Old Name",
+            server_username="alice",
+            access_term="бессрочно",
+            recommender="Bob Jones",
+            activity="fine-tuning",
+            servers=("brain_lab",),
+            source_row_count=1,
+            telegram_user_id=101,
+        ),
+    )
+
+    assert storage.profile_for(101) == Profile(
+        101, "alice_tg", "Alice Corrected", "@new_ref"
+    )
+    assert storage.registry_services_for(101) == ("brain_lab",)
+    provisioner = FakeProvisioner()
+    service = AccessService(storage, provisioner)
+    assert (
+        service.submit(
+            Application(
+                telegram_user_id=101,
+                telegram_username="alice_tg",
+                full_name="Alice Corrected",
+                server_username="alice",
+                access_term="бессрочно",
+                recommender="@new_ref",
+                activity="fine-tuning",
+                servers=("brain_lab",),
+            )
+        )
+        == []
+    )
+    assert provisioner.calls == []
+
+
+def test_registry_service_is_not_provisioned_again(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    storage.save_registry_match(
+        101,
+        "alice_tg",
+        RegistryMatch(
+            telegram_username="alice_tg",
+            full_name="Alice Smith",
+            server_username="alice",
+            access_term="бессрочно",
+            recommender="Bob Jones",
+            activity="fine-tuning",
+            servers=("brain_lab",),
+            source_row_count=1,
+            telegram_user_id=101,
+        ),
+    )
+    provisioner = FakeProvisioner()
+    service = AccessService(storage, provisioner)
+
+    result = service.submit(
+        Application(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            full_name="Alice Smith",
+            server_username="alice",
+            access_term="бессрочно",
+            recommender="Bob Jones",
+            activity="fine-tuning",
+            servers=("brain_lab",),
+        )
+    )
+
+    assert result == []
+    assert provisioner.calls == []
 
 
 def test_access_term_accepts_only_indefinite_or_current_iso_date() -> None:

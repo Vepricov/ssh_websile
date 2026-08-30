@@ -8,10 +8,66 @@
     const formError = document.getElementById("form-error");
     const fullName = document.getElementById("full-name");
     const recommender = document.getElementById("recommender");
+    const storageKey = "brainlab_server_access_profile_v1";
     let submitted = false;
+    let touched = false;
+    let saveTimer;
 
     telegram?.ready();
     telegram?.expand();
+
+    function loadDraft() {
+        const finish = (rawDraft) => {
+            let draft = null;
+            try {
+                draft = JSON.parse(rawDraft || "null");
+            } catch {
+                // Ignore a malformed cloud draft and use Telegram profile data.
+            }
+            if (touched) {
+                return;
+            }
+            if (draft && typeof draft.full_name === "string") {
+                fullName.value = draft.full_name;
+            }
+            if (draft && typeof draft.recommender === "string") {
+                recommender.value = draft.recommender;
+            }
+            if (!fullName.value) {
+                const user = telegram?.initDataUnsafe?.user;
+                fullName.value = [user?.first_name, user?.last_name]
+                    .filter(Boolean)
+                    .join(" ");
+            }
+        };
+        if (!telegram?.CloudStorage?.getItem) {
+            finish(null);
+            return;
+        }
+        telegram.CloudStorage.getItem(storageKey, (error, value) => {
+            finish(error ? null : value);
+        });
+    }
+
+    function saveDraft() {
+        if (!telegram?.CloudStorage?.setItem) {
+            return;
+        }
+        telegram.CloudStorage.setItem(
+            storageKey,
+            JSON.stringify({
+                full_name: fullName.value,
+                recommender: recommender.value,
+            }),
+        );
+    }
+
+    function queueDraftSave() {
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(saveDraft, 250);
+    }
+
+    loadDraft();
 
     function isHumanName(value) {
         const words = value.trim().split(/\s+/);
@@ -47,8 +103,10 @@
     }
 
     form.addEventListener("input", (event) => {
+        touched = true;
         event.target.setCustomValidity?.("");
         formError.hidden = true;
+        queueDraftSave();
     });
 
     form.addEventListener("submit", (event) => {
@@ -67,6 +125,8 @@
             formError.hidden = false;
             return;
         }
+        window.clearTimeout(saveTimer);
+        saveDraft();
         submitted = true;
         submitButton.disabled = true;
         submitLabel.textContent = "Сохраняю…";

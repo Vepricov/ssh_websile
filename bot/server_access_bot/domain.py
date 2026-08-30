@@ -20,6 +20,19 @@ class ServerRequest:
 
 
 @dataclass(frozen=True)
+class RegistryMatch:
+    telegram_username: str
+    full_name: str
+    server_username: str
+    access_term: str
+    recommender: str
+    activity: str
+    servers: tuple[str, ...]
+    source_row_count: int
+    telegram_user_id: int | None = None
+
+
+@dataclass(frozen=True)
 class Application:
     telegram_user_id: int
     telegram_username: str | None

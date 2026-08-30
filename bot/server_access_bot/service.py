@@ -104,6 +104,9 @@ class AccessService:
             host
             for host in application.servers
             if not self.storage.has_access(application.telegram_user_id, host)
+            and not self.storage.has_registered_service(
+                application.telegram_user_id, host
+            )
         ]
         unavailable = [
             host
