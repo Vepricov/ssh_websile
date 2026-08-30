@@ -270,7 +270,10 @@ def format_user_idle_notification(
 
 
 def format_admin_idle_notification(
-    incidents: Sequence[GpuIdleIncident], *, delivery_failed: bool = False
+    incidents: Sequence[GpuIdleIncident],
+    *,
+    delivery_failed: bool = False,
+    policy: GpuIdlePolicy = GpuIdlePolicy(),
 ) -> str:
     username = html.escape(incidents[0].server_username)
     reason = (
@@ -280,16 +283,32 @@ def format_admin_idle_notification(
     )
     lines = [
         "⚠️ <b>Не удалось уведомить владельца GPU-процесса</b>",
-        f"Пользователь: <code>{username}</code>",
+        f"Unix username: <code>{username}</code>",
         f"Причина: {reason}.",
+        "",
+        "<b>Кому написать</b>",
+        "Найдите владельца этого Unix username в общей беседе или таблице "
+        "и отправьте ему текст ниже в личные сообщения.",
+        "",
+        "<b>Готовое сообщение</b>",
     ]
+    message_lines = []
     for incident in incidents:
         server_name = PUBLIC_SERVER_NAMES.get(incident.host, incident.host)
-        lines.append(
-            f"{html.escape(server_name)}, GPU {incident.gpu_index}: "
-            f"{incident.used_memory_mb / 1024:.1f} GB, "
-            f"PID {', '.join(str(pid) for pid in incident.pids)}"
+        message_lines.append(
+            f"Привет! На сервере {html.escape(server_name)} процесс на GPU "
+            f"{incident.gpu_index} занимает "
+            f"{incident.used_memory_mb / 1024:.1f} GB VRAM при загрузке карты "
+            f"не выше {policy.utilization_threshold_percent}% уже не менее "
+            f"{policy.minimum_duration_seconds // 60} минут. "
+            f"PID: {', '.join(str(pid) for pid in incident.pids)}."
         )
+    message_lines.append(
+        "Пожалуйста, проверь, нужен ли ещё этот процесс. Если расчёт завершён "
+        "или завис, освободи GPU-память. Если сейчас идёт загрузка данных, "
+        "evaluation или сохранение checkpoint, сообщение можно проигнорировать."
+    )
+    lines.append("<blockquote>" + "\n\n".join(message_lines) + "</blockquote>")
     return "\n".join(lines)
 
 
@@ -328,12 +347,14 @@ async def deliver_gpu_idle_incidents(
                 )
         if not delivered:
             admin_text = format_admin_idle_notification(
-                user_incidents, delivery_failed=delivery_failed
+                user_incidents,
+                delivery_failed=delivery_failed,
+                policy=policy,
             )
             for admin_user_id in admin_user_ids:
                 try:
                     await bot.send_message(
-                        admin_user_id, admin_text, protect_content=True
+                        admin_user_id, admin_text, protect_content=False
                     )
                     delivered = True
                 except Exception:

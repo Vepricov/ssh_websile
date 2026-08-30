@@ -223,3 +223,11 @@ def test_unmapped_server_username_is_reported_only_to_admin(tmp_path) -> None:
     assert [message[0] for message in bot.messages] == [999]
     assert "не связан с Telegram ID" in bot.messages[0][1]
     assert "unknown" in bot.messages[0][1]
+    assert "Кому написать" in bot.messages[0][1]
+    assert "в общей беседе или таблице" in bot.messages[0][1]
+    assert "Привет! На сервере H200" in bot.messages[0][1]
+    assert "GPU 7" in bot.messages[0][1]
+    assert "20.0 GB VRAM" in bot.messages[0][1]
+    assert "PID: 303" in bot.messages[0][1]
+    assert "не менее 30 минут" in bot.messages[0][1]
+    assert bot.messages[0][2]["protect_content"] is False
