@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>BRAIn Lab — доступ к серверам</title>
+    <link rel="stylesheet" href="access-form.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <main class="shell">
+        <header class="form-header">
+            <div class="eyebrow"><span class="status-dot"></span>BRAIn Lab · Server Access</div>
+            <h1>Заявка на доступ</h1>
+            <p>Все поля собраны на одном экране. Проверьте ответы перед отправкой.</p>
+        </header>
+
+        <form id="access-form" novalidate>
+            <section class="form-section" aria-labelledby="identity-title">
+                <div class="section-number">01</div>
+                <div class="section-content">
+                    <h2 id="identity-title">Пользователь</h2>
+                    <div class="field-grid">
+                        <label class="field field-wide">
+                            <span>Имя и фамилия</span>
+                            <input id="full-name" name="full_name" type="text" autocomplete="name" maxlength="120" placeholder="Иван Иванов" required>
+                            <small>Как вас знают в лаборатории</small>
+                        </label>
+
+                        <label class="field">
+                            <span>Ник на сервере</span>
+                            <div class="input-prefix"><b>$</b><input id="server-username" name="server_username" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" maxlength="32" pattern="[a-z_][a-z0-9_\-]{0,31}" placeholder="ivan_ivanov" required></div>
+                            <small>Строчные латинские буквы, цифры, _ и -</small>
+                        </label>
+
+                        <label class="field">
+                            <span>Рекомендатель</span>
+                            <input id="recommender" name="recommender" type="text" maxlength="120" placeholder="Имя Фамилия или @username" required>
+                            <small>Кто пригласил вас на сервер</small>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="form-section" aria-labelledby="term-title">
+                <div class="section-number">02</div>
+                <div class="section-content">
+                    <h2 id="term-title">Срок доступа</h2>
+                    <div class="term-control">
+                        <label class="field date-field">
+                            <span>Дата окончания</span>
+                            <input id="access-date" name="access_date" type="date">
+                        </label>
+                        <label class="switch-card">
+                            <input id="indefinite" name="indefinite" type="checkbox">
+                            <span class="switch" aria-hidden="true"></span>
+                            <span><b>Бессрочно</b><small>Без даты окончания</small></span>
+                        </label>
+                    </div>
+                    <p class="field-error" id="term-error" role="alert"></p>
+                </div>
+            </section>
+
+            <section class="form-section" aria-labelledby="servers-title">
+                <div class="section-number">03</div>
+                <div class="section-content">
+                    <h2 id="servers-title">Серверы</h2>
+                    <p class="section-hint">Можно выбрать несколько</p>
+                    <div class="server-grid">
+                        <label class="server-card">
+                            <input type="checkbox" name="servers" value="shkodnik_opt">
+                            <span class="server-check" aria-hidden="true">✓</span>
+                            <span class="server-kicker">MIPT</span>
+                            <b>Старый сервер</b>
+                            <small>RTX 2080 · A100 40/80 GB</small>
+                        </label>
+                        <label class="server-card">
+                            <input type="checkbox" name="servers" value="brain_lab">
+                            <span class="server-check" aria-hidden="true">✓</span>
+                            <span class="server-kicker">BRAINLAB</span>
+                            <b>Новый сервер</b>
+                            <small>4 × A100 80 GB</small>
+                        </label>
+                        <label class="server-card">
+                            <input type="checkbox" name="servers" value="vv_h200">
+                            <span class="server-check" aria-hidden="true">✓</span>
+                            <span class="server-kicker">VV</span>
+                            <b>H200</b>
+                            <small>8 × H200 140 GB · нужен VPN</small>
+                        </label>
+                    </div>
+                    <p class="field-error" id="servers-error" role="alert"></p>
+                </div>
+            </section>
+
+            <section class="form-section" aria-labelledby="activity-title">
+                <div class="section-number">04</div>
+                <div class="section-content">
+                    <h2 id="activity-title">Задачи</h2>
+                    <label class="field">
+                        <span>Что планируете делать на сервере <i>необязательно</i></span>
+                        <textarea id="activity" name="activity" maxlength="500" rows="4" placeholder="Например: fine-tuning LLM, обучение CV-модели, эксперименты по оптимизации"></textarea>
+                        <small class="counter"><span id="activity-count">0</span>/500</small>
+                    </label>
+                </div>
+            </section>
+
+            <section id="review" class="review" aria-live="polite" hidden>
+                <div class="review-heading">
+                    <div>
+                        <span>Проверка</span>
+                        <h2>Всё верно?</h2>
+                    </div>
+                    <button id="edit-button" type="button">Изменить</button>
+                </div>
+                <dl id="review-list"></dl>
+                <p>После отправки бот ещё раз покажет заявку. Unix-аккаунт создастся только после финального подтверждения в чате.</p>
+            </section>
+
+            <div id="form-error" class="form-error" role="alert" hidden></div>
+
+            <div class="submit-dock">
+                <button id="submit-button" class="submit-button" type="submit">
+                    <span>Проверить данные</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </button>
+            </div>
+        </form>
+    </main>
+    <script src="access-form.js"></script>
+</body>
+</html>

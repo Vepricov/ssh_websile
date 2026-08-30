@@ -1,0 +1,24 @@
+[project]
+name = "server-access-bot"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.26,<4",
+    "cryptography>=45,<47",
+    "google-api-python-client>=2.180,<3",
+    "google-auth>=2.40,<3",
+]
+
+[project.scripts]
+server-access-bot = "server_access_bot.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.4,<10"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

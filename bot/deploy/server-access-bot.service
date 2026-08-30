@@ -1,0 +1,36 @@
+[Unit]
+Description=BRAIn Lab Telegram server access bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/server-access-bot
+EnvironmentFile=/etc/server-access-bot/bot.env
+ExecStart=/opt/server-access-bot/.venv/bin/python -m server_access_bot
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadOnlyPaths=/root/.ssh /etc/server-access-bot
+ReadWritePaths=/var/lib/server-access-bot
+
+[Install]
+WantedBy=multi-user.target
