@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import html
 import logging
 import secrets
@@ -33,6 +34,12 @@ from .domain import (
     RegistryMatch,
     ServerRequest,
 )
+from .monitoring import (
+    GpuFleetScanner,
+    GpuIdleMonitor,
+    GpuIdlePolicy,
+    run_gpu_idle_monitor,
+)
 from .provisioning import ProvisioningError, SshProvisioner
 from .service import AccessService, ValidationError, validate, validate_profile
 from .sheets import (
@@ -48,8 +55,16 @@ RULES_URL = "https://vepricov.github.io/ssh_websile"
 FORM_URL = f"{RULES_URL}/access-form.html"
 SERVER_FORM_URL = f"{RULES_URL}/server-form.html"
 VPN_NOTE = (
-    "ВАЖНО: перед подключением к H200 получите VPN. Напишите ФИО и "
-    "физтеховскую почту Диме @undef1ne5 с просьбой сделать VPN."
+    "<b>Как получить VPN для H200</b>\n"
+    "Перед подключением получите VPN:\n"
+    "1. Пришлите ФИО и физтеховскую почту Диме "
+    '<a href="https://t.me/undef1ne5">@undef1ne5</a> с просьбой оформить VPN.\n'
+    "2. Дождитесь письма на физтеховскую почту. Отправитель: "
+    "<code>helpdesk02@vkusvill.ru</code>.\n"
+    "3. После получения VPN заполните заявку и напишите "
+    '<a href="https://t.me/shkodnik1917">@shkodnik1917</a>.\n'
+    "Без VPN подключиться к H200 по SSH нельзя. Для остальных серверов "
+    "можно сразу отправлять заявку."
 )
 SERVER_NAMES = {
     "shkodnik_opt": "Старый (mipt)",
@@ -316,7 +331,12 @@ def available_servers_text() -> str:
         "<b>Новый (BrainLab)</b>\n"
         "4 × A100 80 GB\n\n"
         "<b>H200 (VV)</b>\n"
-        "8 × H200 140 GB, требуется VPN\n\n"
+        "8 × H200 140 GB. Перед заявкой пришлите ФИО и физтеховскую "
+        'почту <a href="https://t.me/undef1ne5">@undef1ne5</a>. '
+        "Дождитесь письма от <code>helpdesk02@vkusvill.ru</code>, затем "
+        "отправьте заявку и напишите "
+        '<a href="https://t.me/shkodnik1917">@shkodnik1917</a>. '
+        "Без VPN подключение по SSH недоступно.\n\n"
         "<b>mlsub / Cloud.ru</b>\n"
         "отдельный вычислительный сервис для запуска задач в очереди Cloud.ru. "
         "Доступ выдаётся через инфраструктуру BrainLab, но сервис управляется отдельно.\n\n"
@@ -472,7 +492,7 @@ def server_dashboard_text(
             else:
                 lines.append(f"Telegram-группа: {html.escape(access.group_url)}")
         if access.host == "vv_h200":
-            lines.append(html.escape(VPN_NOTE))
+            lines.append(VPN_NOTE)
         sections.append("\n".join(lines))
     mlsub = by_host.get("mlsub")
     if mlsub is not None:
@@ -1125,6 +1145,36 @@ async def run(settings: Settings) -> None:
             settings.admin_user_ids,
         )
     )
+    monitor_task = None
+    if settings.gpu_monitor_enabled:
+        policy = GpuIdlePolicy(
+            interval_seconds=settings.gpu_monitor_interval_seconds,
+            memory_threshold_mb=settings.gpu_idle_memory_threshold_mb,
+            utilization_threshold_percent=(
+                settings.gpu_idle_utilization_threshold_percent
+            ),
+            minimum_duration_seconds=settings.gpu_idle_minimum_duration_seconds,
+            minimum_samples=settings.gpu_idle_minimum_samples,
+            notification_cooldown_seconds=(
+                settings.gpu_idle_notification_cooldown_seconds
+            ),
+        )
+        monitor = GpuIdleMonitor(
+            storage,
+            GpuFleetScanner(
+                hosts=tuple(SERVER_NAMES),
+                memory_threshold_mb=policy.memory_threshold_mb,
+                utilization_threshold_percent=(
+                    policy.utilization_threshold_percent
+                ),
+            ),
+            policy,
+        )
+        monitor_task = asyncio.create_task(
+            run_gpu_idle_monitor(
+                bot, monitor, admin_user_ids=settings.admin_user_ids
+            )
+        )
     await bot.set_my_commands(
         [
             BotCommand(command="start", description="Открыть главное меню"),
@@ -1136,9 +1186,15 @@ async def run(settings: Settings) -> None:
             BotCommand(command="cancel", description="Отменить текущее действие"),
         ]
     )
-    await dispatcher.start_polling(
-        bot, allowed_updates=dispatcher.resolve_used_update_types()
-    )
+    try:
+        await dispatcher.start_polling(
+            bot, allowed_updates=dispatcher.resolve_used_update_types()
+        )
+    finally:
+        if monitor_task is not None:
+            monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await monitor_task
 
 
 def main() -> None:

@@ -52,3 +52,25 @@ class ProvisionedAccess:
     connection: str
     group_url: str
     created: bool
+
+
+@dataclass(frozen=True)
+class GpuIdleCandidate:
+    host: str
+    gpu_uuid: str
+    gpu_index: int
+    server_username: str
+    used_memory_mb: int
+    pids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class GpuIdleIncident:
+    key: str
+    host: str
+    gpu_index: int
+    server_username: str
+    used_memory_mb: int
+    pids: tuple[int, ...]
+    first_seen_at: int
+    last_seen_at: int

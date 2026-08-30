@@ -10,6 +10,8 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     resources = {resource["id"]: resource for resource in data["resources"]}
 
     assert resources["new_server"]["kind"] == "ssh-server"
+    assert resources["h200"]["vpn_contact"] == "@undef1ne5"
+    assert resources["h200"]["vpn_email_sender"] == "helpdesk02@vkusvill.ru"
     assert resources["mlsub"]["kind"] == "compute-service"
     assert resources["alibaba_ascend"]["status"] == "testing"
     assert resources["alibaba_ascend"]["requestable"] is False
@@ -26,3 +28,6 @@ def test_agent_entrypoint_links_catalog_and_resource_guides() -> None:
     assert "/servers.html#h200" in llms
     assert "brain_lab_vpn" not in llms
     assert "do-vpn" not in llms
+    assert "@undef1ne5" in llms
+    assert "helpdesk02@vkusvill.ru" in llms
+    assert "@shkodnik1917" in llms

@@ -15,6 +15,13 @@ class Settings:
     credential_message_ttl_seconds: int = 300
     demo_user_ids: frozenset[int] = frozenset()
     admin_user_ids: frozenset[int] = frozenset()
+    gpu_monitor_enabled: bool = True
+    gpu_monitor_interval_seconds: int = 300
+    gpu_idle_memory_threshold_mb: int = 4096
+    gpu_idle_utilization_threshold_percent: int = 2
+    gpu_idle_minimum_duration_seconds: int = 1800
+    gpu_idle_minimum_samples: int = 6
+    gpu_idle_notification_cooldown_seconds: int = 43200
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -53,4 +60,26 @@ class Settings:
             ),
             demo_user_ids=demo_user_ids,
             admin_user_ids=admin_user_ids,
+            gpu_monitor_enabled=os.environ.get(
+                "GPU_MONITOR_ENABLED", "true"
+            ).lower()
+            in {"1", "true", "yes", "on"},
+            gpu_monitor_interval_seconds=int(
+                os.environ.get("GPU_MONITOR_INTERVAL_SECONDS", "300")
+            ),
+            gpu_idle_memory_threshold_mb=int(
+                os.environ.get("GPU_IDLE_MEMORY_THRESHOLD_MB", "4096")
+            ),
+            gpu_idle_utilization_threshold_percent=int(
+                os.environ.get("GPU_IDLE_UTILIZATION_THRESHOLD_PERCENT", "2")
+            ),
+            gpu_idle_minimum_duration_seconds=int(
+                os.environ.get("GPU_IDLE_MINIMUM_DURATION_SECONDS", "1800")
+            ),
+            gpu_idle_minimum_samples=int(
+                os.environ.get("GPU_IDLE_MINIMUM_SAMPLES", "6")
+            ),
+            gpu_idle_notification_cooldown_seconds=int(
+                os.environ.get("GPU_IDLE_NOTIFICATION_COOLDOWN_SECONDS", "43200")
+            ),
         )

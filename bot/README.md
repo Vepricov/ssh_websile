@@ -40,6 +40,28 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
    are never rotated.
 12. `/demo` is restricted to `ACCESS_BOT_DEMO_USER_IDS` and exercises both
     forms with fake credentials without changing SQLite, Sheets, or Unix users.
+13. A read-only background monitor checks the three managed GPU servers every
+    five minutes. It notifies a linked Telegram user only after that user's
+    processes hold at least 4 GB VRAM on a GPU with at most 2% utilization for
+    at least 30 minutes. The bot never stops processes automatically and sends
+    at most one reminder per 12 hours. Unknown or ambiguous Unix usernames are
+    reported only to the configured admins.
+
+## H200 access order
+
+1. Send full name and MIPT email to `@undef1ne5` and request VPN for H200.
+2. Wait for the email from `helpdesk02@vkusvill.ru`.
+3. Submit the access request and notify `@shkodnik1917`.
+
+Other managed servers do not require this preliminary VPN step.
+
+## GPU idle monitor
+
+The monitor uses only read-only SSH commands (`nvidia-smi` and `ps`). Its
+observation counters and notification cooldowns are stored in the same SQLite
+database, so a bot restart does not forget an already observed idle process.
+All thresholds are configurable through the `GPU_MONITOR_*` and `GPU_IDLE_*`
+environment variables documented in `.env.example`.
 
 ## Local verification
 

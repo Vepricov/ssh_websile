@@ -5,7 +5,14 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .domain import Application, Profile, ProvisionedAccess, RegistryMatch
+from .domain import (
+    Application,
+    GpuIdleCandidate,
+    GpuIdleIncident,
+    Profile,
+    ProvisionedAccess,
+    RegistryMatch,
+)
 
 
 class RegistryAlreadyClaimedError(ValueError):
@@ -87,6 +94,19 @@ class Storage:
                     status TEXT NOT NULL DEFAULT 'pending',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     resolved_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS gpu_idle_observations (
+                    incident_key TEXT PRIMARY KEY,
+                    host TEXT NOT NULL,
+                    gpu_uuid TEXT NOT NULL,
+                    gpu_index INTEGER NOT NULL,
+                    server_username TEXT NOT NULL,
+                    used_memory_mb INTEGER NOT NULL,
+                    pids TEXT NOT NULL,
+                    first_seen_at INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL,
+                    consecutive_samples INTEGER NOT NULL,
+                    last_notified_at INTEGER
                 );
                 """
             )
@@ -405,6 +425,24 @@ class Storage:
                 ).fetchone()
         return None if row is None else str(row["server_username"])
 
+    def telegram_user_id_for_server_username(self, server_username: str) -> int | None:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT DISTINCT telegram_user_id FROM (
+                    SELECT telegram_user_id, server_username FROM users
+                    UNION ALL
+                    SELECT telegram_user_id, server_username FROM registry_users
+                )
+                WHERE server_username = ?
+                LIMIT 2
+                """,
+                (server_username,),
+            ).fetchall()
+        if len(rows) != 1:
+            return None
+        return int(rows[0]["telegram_user_id"])
+
     def application_for(self, telegram_user_id: int) -> Application | None:
         with self._connect() as db:
             user = db.execute(
@@ -569,3 +607,129 @@ class Storage:
             )
             result.append(ProvisionedAccess(created=bool(row["created"]), **payload))
         return result
+
+    def update_gpu_idle_observations(
+        self,
+        candidates: tuple[GpuIdleCandidate, ...],
+        *,
+        reachable_hosts: tuple[str, ...],
+        now: int,
+        minimum_duration_seconds: int,
+        minimum_samples: int,
+        maximum_sample_gap_seconds: int,
+        notification_cooldown_seconds: int,
+    ) -> list[GpuIdleIncident]:
+        candidate_keys = {
+            f"{item.host}:{item.gpu_uuid}:{item.server_username}": item
+            for item in candidates
+        }
+        reachable = set(reachable_hosts)
+        with self._connect() as db:
+            active_rows = db.execute(
+                "SELECT incident_key, host FROM gpu_idle_observations"
+            ).fetchall()
+            for row in active_rows:
+                key = str(row["incident_key"])
+                if str(row["host"]) in reachable and key not in candidate_keys:
+                    db.execute(
+                        """
+                        UPDATE gpu_idle_observations
+                        SET consecutive_samples = 0
+                        WHERE incident_key = ?
+                        """,
+                        (key,),
+                    )
+
+            for key, candidate in candidate_keys.items():
+                row = db.execute(
+                    """
+                    SELECT first_seen_at, last_seen_at, consecutive_samples
+                    FROM gpu_idle_observations WHERE incident_key = ?
+                    """,
+                    (key,),
+                ).fetchone()
+                continues = (
+                    row is not None
+                    and int(row["consecutive_samples"]) > 0
+                    and 0 <= now - int(row["last_seen_at"])
+                    <= maximum_sample_gap_seconds
+                )
+                first_seen_at = int(row["first_seen_at"]) if continues else now
+                consecutive_samples = (
+                    int(row["consecutive_samples"]) + 1 if continues else 1
+                )
+                db.execute(
+                    """
+                    INSERT INTO gpu_idle_observations (
+                        incident_key, host, gpu_uuid, gpu_index,
+                        server_username, used_memory_mb, pids,
+                        first_seen_at, last_seen_at, consecutive_samples
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(incident_key) DO UPDATE SET
+                        gpu_index=excluded.gpu_index,
+                        used_memory_mb=excluded.used_memory_mb,
+                        pids=excluded.pids,
+                        first_seen_at=excluded.first_seen_at,
+                        last_seen_at=excluded.last_seen_at,
+                        consecutive_samples=excluded.consecutive_samples
+                    """,
+                    (
+                        key,
+                        candidate.host,
+                        candidate.gpu_uuid,
+                        candidate.gpu_index,
+                        candidate.server_username,
+                        candidate.used_memory_mb,
+                        json.dumps(candidate.pids),
+                        first_seen_at,
+                        now,
+                        consecutive_samples,
+                    ),
+                )
+
+            result = []
+            for key in candidate_keys:
+                row = db.execute(
+                    "SELECT * FROM gpu_idle_observations WHERE incident_key = ?",
+                    (key,),
+                ).fetchone()
+                if row is None:
+                    continue
+                last_notified = row["last_notified_at"]
+                if (
+                    int(row["consecutive_samples"]) < minimum_samples
+                    or now - int(row["first_seen_at"]) < minimum_duration_seconds
+                    or (
+                        last_notified is not None
+                        and now - int(last_notified) < notification_cooldown_seconds
+                    )
+                ):
+                    continue
+                result.append(
+                    GpuIdleIncident(
+                        key=key,
+                        host=str(row["host"]),
+                        gpu_index=int(row["gpu_index"]),
+                        server_username=str(row["server_username"]),
+                        used_memory_mb=int(row["used_memory_mb"]),
+                        pids=tuple(int(pid) for pid in json.loads(str(row["pids"]))),
+                        first_seen_at=int(row["first_seen_at"]),
+                        last_seen_at=int(row["last_seen_at"]),
+                    )
+                )
+        return sorted(
+            result,
+            key=lambda item: (item.server_username, item.host, item.gpu_index),
+        )
+
+    def mark_gpu_idle_notified(self, keys: tuple[str, ...], *, now: int) -> None:
+        if not keys:
+            return
+        with self._connect() as db:
+            db.executemany(
+                """
+                UPDATE gpu_idle_observations SET last_notified_at = ?
+                WHERE incident_key = ?
+                """,
+                [(now, key) for key in keys],
+            )

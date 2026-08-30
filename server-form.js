@@ -2,6 +2,9 @@
     "use strict";
 
     const telegram = window.Telegram?.WebApp;
+    const cloudStorage = telegram?.isVersionAtLeast?.("6.9")
+        ? telegram.CloudStorage
+        : null;
     const form = document.getElementById("server-form");
     const submitButton = document.getElementById("submit-button");
     const submitLabel = submitButton.querySelector("span");
@@ -74,20 +77,20 @@
             }
             applyRequestedServer();
         };
-        if (!telegram?.CloudStorage?.getItem) {
+        if (!cloudStorage?.getItem) {
             finish(null);
             return;
         }
-        telegram.CloudStorage.getItem(storageKey, (error, value) => {
+        cloudStorage.getItem(storageKey, (error, value) => {
             finish(error ? null : value);
         });
     }
 
     function saveDraft() {
-        if (!telegram?.CloudStorage?.setItem) {
+        if (!cloudStorage?.setItem) {
             return;
         }
-        telegram.CloudStorage.setItem(
+        cloudStorage.setItem(
             storageKey,
             JSON.stringify({
                 server_username: serverUsername.value,
