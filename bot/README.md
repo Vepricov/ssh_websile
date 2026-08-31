@@ -62,7 +62,7 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
 
 1. Send full name and MIPT email to `@undef1ne5` and request VPN for H200.
 2. Wait for the email from `helpdesk02@vkusvill.ru`.
-3. Submit the access request and notify `@shkodnik1917`.
+3. Submit the access request through `@brainlab_server_access_bot`. No separate administrator message is required.
 
 Other managed servers do not require this preliminary VPN step.
 

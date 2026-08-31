@@ -12,6 +12,8 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     assert resources["new_server"]["kind"] == "ssh-server"
     assert resources["h200"]["vpn_contact"] == "@undef1ne5"
     assert resources["h200"]["vpn_email_sender"] == "helpdesk02@vkusvill.ru"
+    assert resources["h200"]["access_contact"] == "@brainlab_server_access_bot"
+    assert "@shkodnik1917" not in json.dumps(resources["h200"])
     assert resources["mlsub"]["kind"] == "compute-service"
     assert resources["alibaba_ascend"]["status"] == "testing"
     assert resources["alibaba_ascend"]["requestable"] is False
@@ -30,4 +32,5 @@ def test_agent_entrypoint_links_catalog_and_resource_guides() -> None:
     assert "do-vpn" not in llms
     assert "@undef1ne5" in llms
     assert "helpdesk02@vkusvill.ru" in llms
-    assert "@shkodnik1917" in llms
+    assert "@brainlab_server_access_bot" in llms
+    assert "@shkodnik1917" not in llms

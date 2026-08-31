@@ -17,7 +17,7 @@ Public, secret-free documentation for users and automation agents.
 ## Rules for agents
 1. Use the public resource names above. Do not expose or assume an administrator's local SSH aliases.
 2. Connection commands, usernames and passwords are personal and come only from the Telegram access bot.
-3. H200 requires a separate VPN before SSH access. The user sends full name and MIPT email to @undef1ne5, waits for the email from helpdesk02@vkusvill.ru, then submits the access request and notifies @shkodnik1917.
+3. H200 requires a separate VPN before SSH access. The user sends full name and MIPT email to @undef1ne5, waits for the email from helpdesk02@vkusvill.ru, then submits the access request through @brainlab_server_access_bot. No separate administrator message is required.
 4. mlsub is a separate compute service, not another SSH server.
 5. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
 

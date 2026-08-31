@@ -91,7 +91,8 @@ def test_server_dashboard_contains_managed_accesses_and_yandex_contact() -> None
     assert "получите VPN" in text
     assert "@undef1ne5" in text
     assert "helpdesk02@vkusvill.ru" in text
-    assert "@shkodnik1917" in text
+    assert "Получить доступ" in text
+    assert "@shkodnik1917" not in text
     assert '<a href="https://t.me/aloeme">@aloeme</a>' in text
     assert keyboard is not None
     assert keyboard.inline_keyboard[0][0].callback_data == "servers:add:shkodnik_opt"
@@ -233,7 +234,8 @@ def test_available_server_message_is_complete() -> None:
     assert "H200 (VV)" in catalog
     assert "@undef1ne5" in catalog
     assert "helpdesk02@vkusvill.ru" in catalog
-    assert "@shkodnik1917" in catalog
+    assert "Получить доступ" in catalog
+    assert "@shkodnik1917" not in catalog
     assert "mlsub / Cloud.ru" in catalog
     assert "отдельный вычислительный сервис" in catalog
     assert "Alibaba Ascend" in catalog
