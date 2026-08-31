@@ -69,8 +69,10 @@ def test_gpu_status_shows_each_card_and_unreachable_server() -> None:
 
     assert "🟢 <b>Новый сервер (BrainLab)</b>" in text
     assert "GPU 0 · NVIDIA A100 80GB PCIe" in text
-    assert "31%" in text
-    assert "24.0 / 80.0 GB VRAM" in text
+    assert "UTIL" in text
+    assert "🟩🟩🟩🟩⬜⬜⬜⬜⬜⬜ 31%" in text
+    assert "VRAM" in text
+    assert "🟦🟦🟦⬜⬜⬜⬜⬜⬜⬜ 30% · 24.0 / 80.0 GB" in text
     assert "GPU 1" in text
     assert "🔴 <b>H200</b>" in text
     assert "Сервер недоступен по SSH" in text

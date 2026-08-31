@@ -330,15 +330,33 @@ def format_gpu_status(statuses: Sequence[ServerGpuStatus]) -> str:
             continue
         lines = [f"🟢 <b>{server_name}</b>"]
         for device in status.devices:
-            filled = min(10, (device.utilization_percent + 9) // 10)
-            bar = "█" * filled + "░" * (10 - filled)
+            utilization_filled = min(
+                10, (device.utilization_percent + 9) // 10
+            )
+            utilization_bar = "🟩" * utilization_filled + "⬜" * (
+                10 - utilization_filled
+            )
+            memory_percent = (
+                min(
+                    100,
+                    round(100 * device.used_memory_mb / device.total_memory_mb),
+                )
+                if device.total_memory_mb
+                else 0
+            )
+            memory_filled = min(10, (memory_percent + 9) // 10)
+            memory_bar = "🟦" * memory_filled + "⬜" * (10 - memory_filled)
             lines.extend(
                 [
                     f"GPU {device.index} · {html.escape(device.name)}",
                     (
-                        f"<code>{bar}</code> {device.utilization_percent}% · "
+                        f"<b>UTIL</b>  {utilization_bar} "
+                        f"{device.utilization_percent}%"
+                    ),
+                    (
+                        f"<b>VRAM</b> {memory_bar} {memory_percent}% · "
                         f"{device.used_memory_mb / 1024:.1f} / "
-                        f"{device.total_memory_mb / 1024:.1f} GB VRAM"
+                        f"{device.total_memory_mb / 1024:.1f} GB"
                     ),
                 ]
             )
