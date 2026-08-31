@@ -524,12 +524,21 @@ class Storage:
         telegram_user_id: int,
         telegram_username: str | None,
         match: RegistryMatch,
+        *,
+        allow_legacy_claim: bool = False,
     ) -> None:
-        if match.telegram_user_id != telegram_user_id:
+        source_username = match.telegram_username.lstrip("@").casefold()
+        current_username = (telegram_username or "").lstrip("@").casefold()
+        trusted_id_matches = match.telegram_user_id == telegram_user_id
+        legacy_username_matches = (
+            allow_legacy_claim
+            and match.telegram_user_id is None
+            and current_username == source_username
+        )
+        if not (trusted_id_matches or legacy_username_matches):
             raise RegistryAlreadyClaimedError(
                 "registry identity is not verified for this Telegram ID"
             )
-        source_username = match.telegram_username.lstrip("@").casefold()
         try:
             with self._connect() as db:
                 owner = db.execute(

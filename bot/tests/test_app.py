@@ -1,18 +1,19 @@
 from server_access_bot.app import (
     BOT_DEFAULTS,
     MAIN_MENU,
+    admin_approval_keyboard,
     application_from_request,
     available_servers_keyboard,
     available_servers_text,
-    admin_approval_keyboard,
+    confirmation_keyboard,
     demo_accesses,
     gpu_force_keyboard,
     gpu_stop_confirmation_keyboard,
-    onboarding_text,
-    confirmation_keyboard,
     my_info_text,
+    onboarding_text,
     registry_confirmation_keyboard,
     registry_confirmation_text,
+    registry_link_can_be_claimed,
     registry_link_is_trusted,
     server_dashboard_keyboard,
     server_dashboard_text,
@@ -105,12 +106,30 @@ def test_registry_services_are_shown_without_fake_password_or_add_button() -> No
     keyboard = server_dashboard_keyboard([], match.servers)
 
     assert "Доступ найден в таблице" in text
-    assert "Пароль не сохранён ботом" in text
+    assert "Пароль: ищите в переписке с @shkodnik1917" in text
     assert "Ник: <code>alice</code>" in text
     assert keyboard is not None
     callbacks = [row[0].callback_data for row in keyboard.inline_keyboard]
     assert "servers:add:brain_lab" not in callbacks
     assert "servers:add:shkodnik_opt" in callbacks
+
+
+def test_registry_dashboard_does_not_show_invalid_legacy_unix_name() -> None:
+    match = RegistryMatch(
+        telegram_username="igor_vsh",
+        full_name="Игорь Шалыгин",
+        server_username="",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="research",
+        servers=("brain_lab",),
+        source_row_count=1,
+        telegram_user_id=101,
+    )
+
+    text = server_dashboard_text([], match)
+
+    assert "Ник: не указан в таблице" in text
 
 
 def test_add_server_button_opens_prefilled_server_form() -> None:
@@ -212,6 +231,24 @@ def test_registry_link_requires_matching_numeric_telegram_id() -> None:
     assert not registry_link_is_trusted(legacy, 101)
 
 
+def test_legacy_registry_link_can_be_claimed_by_current_username_holder() -> None:
+    trusted = registry_match()
+    legacy = RegistryMatch(
+        telegram_username=trusted.telegram_username,
+        full_name=trusted.full_name,
+        server_username=trusted.server_username,
+        access_term=trusted.access_term,
+        recommender=trusted.recommender,
+        activity=trusted.activity,
+        servers=trusted.servers,
+        source_row_count=trusted.source_row_count,
+    )
+
+    assert registry_link_can_be_claimed(legacy, 101)
+    assert registry_link_can_be_claimed(trusted, 101)
+    assert not registry_link_can_be_claimed(trusted, 202)
+
+
 def test_my_info_combines_profile_and_registered_services() -> None:
     profile = Profile(101, "alice_tg", "Alice <Smith>", "Bob Jones")
 
@@ -223,6 +260,8 @@ def test_my_info_combines_profile_and_registered_services() -> None:
     assert "Ник на серверах: <code>alice</code>" in text
     assert "Новый сервер (BrainLab)" in text
     assert "Яндекс-сервер" in text
+    assert "Пароли к старым доступам" in text
+    assert "@shkodnik1917" in text
 
 
 def test_available_server_message_is_complete() -> None:

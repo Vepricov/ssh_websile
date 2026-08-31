@@ -1,3 +1,5 @@
+import re
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,7 @@ REGISTRY_SERVERS = (
     ("yandex", ("Яндекс",)),
     ("mlsub", ("mlsub / Cloud.ru",)),
 )
+SERVER_USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
 class RegistryAmbiguousError(ValueError):
@@ -65,14 +68,13 @@ def registry_match_from_rows(
     ]
     if not matched:
         return None
-    identities = {
-        (
-            " ".join(_cell(row, 1).split()).casefold(),
-            _cell(row, 2).lower(),
-        )
+    server_usernames = {
+        candidate
         for row in matched
+        if (candidate := _cell(row, 2).lstrip("@").lower())
+        and SERVER_USERNAME_RE.fullmatch(candidate)
     }
-    if len(identities) != 1:
+    if len(server_usernames) > 1:
         raise RegistryAmbiguousError(
             "В таблице найдено несколько разных профилей с этим Telegram-ником."
         )
@@ -107,7 +109,7 @@ def registry_match_from_rows(
     return RegistryMatch(
         telegram_username=normalized_username,
         full_name=" ".join(_cell(latest, 1).split()),
-        server_username=_cell(latest, 2),
+        server_username=next(iter(server_usernames), ""),
         access_term=_cell(latest, 3),
         recommender=_cell(latest, 4),
         activity=_cell(latest, 7),
@@ -128,6 +130,35 @@ def registry_match_from_sheet_values(
         telegram_username,
         trust_telegram_user_id=trusted_id_column,
     )
+
+
+def registry_claim_plan_from_sheet_values(
+    rows: list[list[str]],
+    telegram_username: str,
+    telegram_user_id: int,
+) -> tuple[RegistryMatch | None, tuple[int, ...]]:
+    if not rows or tuple(rows[0][:8]) != FORM_HEADERS:
+        raise RuntimeError("Google Sheet registry headers changed")
+    id_header = _cell(rows[0], 8)
+    if id_header not in ("", BOT_HEADERS[0]):
+        raise RuntimeError("Google Sheet Telegram ID column is already in use")
+    if telegram_user_id <= 0:
+        raise ValueError("Telegram user ID must be positive")
+    match = registry_match_from_sheet_values(rows, telegram_username)
+    if match is None:
+        return None, ()
+    if match.telegram_user_id not in (None, telegram_user_id):
+        raise RegistryAmbiguousError(
+            "Эта запись уже связана с другим Telegram ID."
+        )
+    normalized_username = normalize_telegram_username(telegram_username)
+    row_numbers = tuple(
+        row_number
+        for row_number, row in enumerate(rows[1:], start=2)
+        if normalize_telegram_username(_cell(row, 5)) == normalized_username
+        and not _cell(row, 8)
+    )
+    return replace(match, telegram_user_id=telegram_user_id), row_numbers
 
 
 def application_values(
@@ -200,6 +231,56 @@ class GoogleSheetsRepository:
         )
         rows = response.get("values", [])
         return registry_match_from_sheet_values(rows, telegram_username)
+
+    def claim_registry_user_id(
+        self,
+        telegram_username: str,
+        telegram_user_id: int,
+    ) -> RegistryMatch | None:
+        title = self._sheet_title().replace("'", "''")
+        response = (
+            self.service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"'{title}'!A:K",
+            )
+            .execute()
+        )
+        rows = response.get("values", [])
+        match, row_numbers = registry_claim_plan_from_sheet_values(
+            rows, telegram_username, telegram_user_id
+        )
+        needs_headers = not rows or _cell(rows[0], 8) != BOT_HEADERS[0]
+        if needs_headers or row_numbers:
+            data = []
+            if needs_headers:
+                data.append(
+                    {
+                        "range": f"'{title}'!I1:K1",
+                        "values": [list(BOT_HEADERS)],
+                    }
+                )
+            data.extend(
+                {
+                    "range": f"'{title}'!I{row_number}",
+                    "values": [[str(telegram_user_id)]],
+                }
+                for row_number in row_numbers
+            )
+            (
+                self.service.spreadsheets()
+                .values()
+                .batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={
+                        "valueInputOption": "RAW",
+                        "data": data,
+                    },
+                )
+                .execute()
+            )
+        return match
 
     def upsert(self, application: Application, status: str) -> None:
         title = self._sheet_title().replace("'", "''")

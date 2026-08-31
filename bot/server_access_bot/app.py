@@ -491,6 +491,12 @@ def registry_link_is_trusted(match: RegistryMatch, telegram_user_id: int) -> boo
     return match.telegram_user_id == telegram_user_id
 
 
+def registry_link_can_be_claimed(
+    match: RegistryMatch, telegram_user_id: int
+) -> bool:
+    return match.telegram_user_id in (None, telegram_user_id)
+
+
 def my_info_text(
     profile: Profile,
     registry: RegistryMatch | None,
@@ -510,7 +516,7 @@ def my_info_text(
         if profile.telegram_username
         else "не указан"
     )
-    return (
+    text = (
         "<b>Мой профиль</b>\n\n"
         f"ФИО: {html.escape(profile.full_name)}\n"
         f"Telegram: {telegram_username}\n"
@@ -523,6 +529,12 @@ def my_info_text(
         + "Подключённые сервисы: "
         + html.escape(", ".join(connected_names) or "нет")
     )
+    if registry is not None:
+        text += (
+            "\nПароли к старым доступам: ищите в переписке с "
+            "@shkodnik1917."
+        )
+    return text
 
 
 def server_dashboard_text(
@@ -536,11 +548,16 @@ def server_dashboard_text(
         access = by_host.get(host)
         if access is None:
             if host in registered and registry is not None:
+                username_line = (
+                    f"Ник: <code>{html.escape(registry.server_username)}</code>"
+                    if registry.server_username
+                    else "Ник: не указан в таблице"
+                )
                 sections.append(
                     f"✅ <b>{html.escape(name)}</b>\n"
-                    f"Ник: <code>{html.escape(registry.server_username)}</code>\n"
+                    f"{username_line}\n"
                     "Доступ найден в таблице.\n"
-                    "Пароль не сохранён ботом."
+                    "Пароль: ищите в переписке с @shkodnik1917."
                 )
                 continue
             sections.append(f"○ <b>{html.escape(name)}</b>\nДоступ ещё не добавлен.")
@@ -633,22 +650,48 @@ def build_router(
             return False
         if match is None:
             return False
-        if not registry_link_is_trusted(match, message.from_user.id):
+        if not registry_link_can_be_claimed(match, message.from_user.id):
             await message.answer(
-                "Я нашёл старую запись с таким Telegram-ником, но в ней нет "
-                "подтверждённого numeric Telegram ID. Персональные данные и "
-                "доступы не показаны: безопасная автоматическая привязка невозможна."
+                "Запись с вашим Telegram-ником уже связана с другим Telegram ID. "
+                "Автоматическая привязка заблокирована: обратитесь к администратору."
             )
             return False
-        link_id = secrets.token_urlsafe(8)
-        data = registry_match_data(match)
-        data["link_id"] = link_id
-        await state.set_data(data)
-        await state.set_state(Form.registry_confirm)
-        await message.answer(
-            registry_confirmation_text(match),
-            reply_markup=registry_confirmation_keyboard(link_id),
+        legacy_claim = match.telegram_user_id is None
+        try:
+            await asyncio.to_thread(
+                service.storage.save_registry_match,
+                message.from_user.id,
+                message.from_user.username,
+                match,
+                allow_legacy_claim=legacy_claim,
+            )
+        except RegistryAlreadyClaimedError:
+            await message.answer(
+                "Эта запись уже связана с другим Telegram-аккаунтом. "
+                "Обратитесь к администратору для ручной проверки."
+            )
+            return False
+        if legacy_claim:
+            try:
+                await asyncio.to_thread(
+                    sheets.claim_registry_user_id,
+                    message.from_user.username,
+                    message.from_user.id,
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Could not persist Telegram ID for registry user %s",
+                    message.from_user.id,
+                )
+        await state.clear()
+        profile = await asyncio.to_thread(
+            service.storage.profile_for, message.from_user.id
         )
+        await message.answer(
+            "Нашёл ваши данные в таблице и привязал их к Telegram-профилю."
+        )
+        if profile is not None:
+            await answer_profile(message, profile)
         return True
 
     async def provision_application(
@@ -710,8 +753,13 @@ def build_router(
             registry = await asyncio.to_thread(
                 service.storage.registry_match_for, message.from_user.id
             )
-            if registry is None:
-                await offer_registry_link(message, state)
+            if registry is None and await offer_registry_link(message, state):
+                return
+            profile = await asyncio.to_thread(
+                service.storage.profile_for, message.from_user.id
+            )
+            if profile is not None:
+                await answer_profile(message, profile)
 
     @router.message(Command("demo"))
     async def demo(message: Message, state: FSMContext) -> None:

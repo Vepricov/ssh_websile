@@ -133,6 +133,45 @@ def test_registry_identity_can_only_be_claimed_by_one_telegram_id(
     assert storage.registry_match_for(202) is None
 
 
+def test_legacy_registry_identity_can_be_claimed_once_by_current_username(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    legacy = RegistryMatch(
+        telegram_username="amir_iny",
+        full_name="Амир Зайнуллин",
+        server_username="amir_iny",
+        access_term="бессрочно",
+        recommender="Andrey",
+        activity="research",
+        servers=("brain_lab", "vv_h200"),
+        source_row_count=2,
+    )
+
+    storage.save_registry_match(
+        101,
+        "amir_iny",
+        legacy,
+        allow_legacy_claim=True,
+    )
+
+    imported = storage.registry_match_for(101)
+    assert imported is not None
+    assert imported.telegram_user_id == 101
+    assert imported.servers == ("brain_lab", "vv_h200")
+    try:
+        storage.save_registry_match(
+            202,
+            "amir_iny",
+            legacy,
+            allow_legacy_claim=True,
+        )
+    except RegistryAlreadyClaimedError:
+        pass
+    else:
+        raise AssertionError("legacy registry identity was claimed twice")
+
+
 def test_registry_link_preserves_an_existing_edited_profile(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
     storage.save_profile(Profile(101, "alice_tg", "Alice Corrected", "@new_ref"))

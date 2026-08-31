@@ -1,12 +1,14 @@
 from datetime import UTC, datetime
 
 import pytest
+
 from server_access_bot.domain import Application
 from server_access_bot.sheets import (
     BOT_HEADERS,
     FORM_HEADERS,
     RegistryAmbiguousError,
     application_values,
+    registry_claim_plan_from_sheet_values,
     registry_match_from_rows,
     registry_match_from_sheet_values,
 )
@@ -111,6 +113,44 @@ def test_registry_rows_for_same_identity_are_merged_by_server() -> None:
     assert match.servers == ("shkodnik_opt", "brain_lab", "vv_h200")
 
 
+def test_registry_ignores_legacy_name_order_and_invalid_unix_name() -> None:
+    rows = [
+        registry_row("Иван Голдов", "igoldov", "@qclsr", "H200 (VB)"),
+        registry_row(
+            "Голдов Иван",
+            "Иван Голдов",
+            "qclsr",
+            "Новый (BrainLab)",
+        ),
+    ]
+
+    match = registry_match_from_rows(rows, "qclsr")
+
+    assert match is not None
+    assert match.full_name == "Голдов Иван"
+    assert match.server_username == "igoldov"
+    assert match.servers == ("brain_lab", "vv_h200")
+
+
+def test_registry_imports_profile_when_legacy_unix_name_is_missing() -> None:
+    match = registry_match_from_rows(
+        [
+            registry_row(
+                "Игорь Шалыгин",
+                "Игорь Шалыгин",
+                "@igor_vsh",
+                "Новый (BrainLab)",
+            )
+        ],
+        "igor_vsh",
+    )
+
+    assert match is not None
+    assert match.full_name == "Игорь Шалыгин"
+    assert match.server_username == ""
+    assert match.servers == ("brain_lab",)
+
+
 def test_registry_yandex_service_is_imported_but_not_managed() -> None:
     match = registry_match_from_rows(
         [
@@ -155,6 +195,28 @@ def test_legacy_registry_match_has_no_trusted_numeric_telegram_id() -> None:
 
     assert match is not None
     assert match.telegram_user_id is None
+
+
+def test_legacy_registry_claim_updates_all_matching_rows_with_numeric_id() -> None:
+    rows = [
+        list(FORM_HEADERS),
+        registry_row("Амир Зайнуллин", "amir_iny", "@amir_iny", "H200 (VB)"),
+        registry_row(
+            "Амир Зайнуллин",
+            "amir_iny",
+            "amir_iny",
+            "Новый (BrainLab)",
+        ),
+    ]
+
+    match, row_numbers = registry_claim_plan_from_sheet_values(
+        rows, "amir_iny", 101
+    )
+
+    assert match is not None
+    assert match.telegram_user_id == 101
+    assert match.servers == ("brain_lab", "vv_h200")
+    assert row_numbers == (2, 3)
 
 
 def test_sheet_schema_controls_whether_numeric_id_is_trusted() -> None:
