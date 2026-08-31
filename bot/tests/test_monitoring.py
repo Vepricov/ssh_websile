@@ -1,5 +1,7 @@
 import asyncio
 import base64
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from server_access_bot.config import Settings
 from server_access_bot.domain import (
@@ -65,14 +67,18 @@ def test_gpu_status_shows_each_card_and_unreachable_server() -> None:
     statuses = GpuStatusScanner(
         hosts=("brain_lab", "vv_h200"), runner=runner
     ).scan()
-    text = format_gpu_status(statuses)
+    text = format_gpu_status(
+        statuses,
+        updated_at=datetime(2026, 8, 31, 9, 12, tzinfo=ZoneInfo("Europe/Moscow")),
+    )
 
     assert "🟢 <b>Новый сервер (BrainLab)</b>" in text
+    assert "Обновлено: 31.08.2026, 09:12 МСК" in text
     assert "GPU 0 · NVIDIA A100 80GB PCIe" in text
-    assert "UTIL" in text
-    assert "🟩🟩🟩🟩⬜⬜⬜⬜⬜⬜ 31%" in text
-    assert "VRAM" in text
-    assert "🟦🟦🟦⬜⬜⬜⬜⬜⬜⬜ 30% · 24.0 / 80.0 GB" in text
+    assert (
+        "<code>UTIL ██░░░ 31% · VRAM ██░░░ 30% · 24.0/80.0 GB</code>"
+        in text
+    )
     assert "GPU 1" in text
     assert "🔴 <b>H200</b>" in text
     assert "Сервер недоступен по SSH" in text

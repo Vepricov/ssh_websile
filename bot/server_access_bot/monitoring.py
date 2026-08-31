@@ -10,6 +10,8 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -24,6 +26,7 @@ from .storage import Storage
 Runner = Callable[[str, tuple[str, ...]], tuple[int, str]]
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 LOGGER = logging.getLogger(__name__)
+MOSCOW_TIMEZONE = ZoneInfo("Europe/Moscow")
 PUBLIC_SERVER_NAMES = {
     "shkodnik_opt": "Старый сервер (MIPT)",
     "brain_lab": "Новый сервер (BrainLab)",
@@ -311,10 +314,16 @@ class GpuStatusScanner:
         return tuple(sorted(devices, key=lambda device: device.index))
 
 
-def format_gpu_status(statuses: Sequence[ServerGpuStatus]) -> str:
+def format_gpu_status(
+    statuses: Sequence[ServerGpuStatus],
+    *,
+    updated_at: datetime | None = None,
+) -> str:
+    timestamp = updated_at or datetime.now(MOSCOW_TIMEZONE)
+    timestamp = timestamp.astimezone(MOSCOW_TIMEZONE)
     sections = [
         "📡 <b>Статус GPU прямо сейчас</b>",
-        "Загрузка и память обновлены при нажатии кнопки.",
+        f"Обновлено: {timestamp:%d.%m.%Y, %H:%M} МСК",
     ]
     for status in statuses:
         server_name = html.escape(PUBLIC_SERVER_NAMES.get(status.host, status.host))
@@ -330,11 +339,9 @@ def format_gpu_status(statuses: Sequence[ServerGpuStatus]) -> str:
             continue
         lines = [f"🟢 <b>{server_name}</b>"]
         for device in status.devices:
-            utilization_filled = min(
-                10, (device.utilization_percent + 9) // 10
-            )
-            utilization_bar = "🟩" * utilization_filled + "⬜" * (
-                10 - utilization_filled
+            utilization_filled = min(5, (device.utilization_percent + 19) // 20)
+            utilization_bar = "█" * utilization_filled + "░" * (
+                5 - utilization_filled
             )
             memory_percent = (
                 min(
@@ -344,19 +351,17 @@ def format_gpu_status(statuses: Sequence[ServerGpuStatus]) -> str:
                 if device.total_memory_mb
                 else 0
             )
-            memory_filled = min(10, (memory_percent + 9) // 10)
-            memory_bar = "🟦" * memory_filled + "⬜" * (10 - memory_filled)
+            memory_filled = min(5, (memory_percent + 19) // 20)
+            memory_bar = "█" * memory_filled + "░" * (5 - memory_filled)
             lines.extend(
                 [
                     f"GPU {device.index} · {html.escape(device.name)}",
                     (
-                        f"<b>UTIL</b>  {utilization_bar} "
-                        f"{device.utilization_percent}%"
-                    ),
-                    (
-                        f"<b>VRAM</b> {memory_bar} {memory_percent}% · "
-                        f"{device.used_memory_mb / 1024:.1f} / "
-                        f"{device.total_memory_mb / 1024:.1f} GB"
+                        f"<code>UTIL {utilization_bar} "
+                        f"{device.utilization_percent}% · "
+                        f"VRAM {memory_bar} {memory_percent}% · "
+                        f"{device.used_memory_mb / 1024:.1f}/"
+                        f"{device.total_memory_mb / 1024:.1f} GB</code>"
                     ),
                 ]
             )
