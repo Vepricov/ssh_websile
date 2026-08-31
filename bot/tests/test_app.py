@@ -191,7 +191,7 @@ def test_main_menu_exposes_profile_catalog_info_and_access_actions() -> None:
 
     assert labels == [
         ["👤 Мой профиль", "🔐 Мои серверы"],
-        ["🖥 Доступные серверы", "➕ Получить доступ"],
+        ["🖥 Все серверы лаборатории", "➕ Получить доступ"],
         ["📚 Сайт и правила", "📡 Статус серверов"],
     ]
     access_button = MAIN_MENU.keyboard[1][1]
@@ -290,7 +290,7 @@ def test_onboarding_explains_the_main_user_flow() -> None:
     text = onboarding_text()
 
     assert "Мой профиль" in text
-    assert "Доступные серверы" in text
+    assert "Все серверы лаборатории" in text
     assert "Получить доступ" in text
     assert "Мои серверы" in text
     assert "пароли" in text

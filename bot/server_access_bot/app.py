@@ -111,7 +111,7 @@ MAIN_MENU = ReplyKeyboardMarkup(
             KeyboardButton(text="🔐 Мои серверы"),
         ],
         [
-            KeyboardButton(text="🖥 Доступные серверы"),
+            KeyboardButton(text="🖥 Все серверы лаборатории"),
             KeyboardButton(
                 text="➕ Получить доступ", web_app=WebAppInfo(url=SERVER_FORM_URL)
             ),
@@ -401,7 +401,7 @@ def application_summary(data: dict[str, object]) -> str:
 
 def available_servers_text() -> str:
     return (
-        "<b>Доступные серверы</b>\n\n"
+        "<b>Все серверы лаборатории</b>\n\n"
         "<b>Старый сервер (MIPT)</b>\n"
         "4 × RTX 2080 11 GB, 2 × A100 40 GB, 2 × A100 80 GB\n\n"
         "<b>Новый сервер (BrainLab)</b>\n"
@@ -426,7 +426,7 @@ def onboarding_text() -> str:
     return (
         "<b>BRAIn Lab · доступ к вычислениям</b>\n\n"
         "Сначала заполните <b>Мой профиль</b>: имя и кто вас пригласил. "
-        "Затем откройте <b>Доступные серверы</b>, чтобы сравнить ресурсы и "
+        "Затем откройте <b>Все серверы лаборатории</b>, чтобы сравнить ресурсы и "
         "условия подключения.\n\n"
         "Через <b>Получить доступ</b> можно отправить заявку на сервер или "
         "отдельный сервис. В <b>Мои серверы</b> бот показывает ваши логины, "
@@ -1280,7 +1280,9 @@ def build_router(
             return
         await answer_profile(message, profile)
 
-    @router.message(F.text == "🖥 Доступные серверы")
+    @router.message(
+        F.text.in_({"🖥 Все серверы лаборатории", "🖥 Доступные серверы"})
+    )
     async def available_servers(message: Message, state: FSMContext) -> None:
         await state.clear()
         await message.answer(
