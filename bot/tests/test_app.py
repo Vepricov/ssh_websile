@@ -171,7 +171,8 @@ def test_main_menu_exposes_profile_catalog_info_and_access_actions() -> None:
 
     assert labels == [
         ["👤 Мой профиль", "🔐 Мои серверы"],
-        ["🖥 Доступные серверы", "➕ Получить доступ", "📚 Сайт и правила"],
+        ["🖥 Доступные серверы", "➕ Получить доступ"],
+        ["📚 Сайт и правила", "📡 Статус серверов"],
     ]
     access_button = MAIN_MENU.keyboard[1][1]
     assert access_button.web_app is not None

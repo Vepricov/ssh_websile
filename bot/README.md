@@ -7,8 +7,9 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
 
 ## User flow
 
-1. `/start` replaces any cached legacy keyboard with the current five-button
-   menu: profile, available servers, saved servers, access request, and rules.
+1. `/start` replaces any cached legacy keyboard with the current six-button
+   menu: profile, available servers, saved servers, access request, rules, and
+   live server status. The buttons are arranged in three rows of two.
 2. On first contact, the bot searches the legacy Google Sheet by normalized
    Telegram username. One-tap confirmation is offered only when the row already
    contains the same numeric Telegram user ID. Legacy username-only rows never
@@ -49,6 +50,13 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
     the exact reported processes after confirmation. Action buttons do not
     expire, but PID ownership and process start time are rechecked before every
     signal.
+14. `Статус серверов` runs a fresh parallel `nvidia-smi` snapshot. It shows
+    every GPU's utilization and VRAM usage and marks unreachable SSH hosts.
+15. A disk monitor checks `/`, `/home`, and inode availability every 30 minutes.
+    A bound server chat receives a warning below 15% free and a critical alert
+    below 5% free. Alerts include growth since the previous sample and over the
+    last 24 hours. A root-owned helper calculates the five largest immediate
+    directories in `/home` only when an alert is actually sent.
 
 ## H200 access order
 
@@ -65,6 +73,25 @@ observation counters and notification cooldowns are stored in the same SQLite
 database, so a bot restart does not forget an already observed idle process.
 All thresholds are configurable through the `GPU_MONITOR_*` and `GPU_IDLE_*`
 environment variables documented in `.env.example`.
+
+## Server chats and disk monitoring
+
+Add the bot to a server group or forum topic and run one of these commands as a
+configured bot admin:
+
+```text
+/bind_server shkodnik_opt
+/bind_server brain_lab
+/bind_server vv_h200
+```
+
+The binding stores both the Telegram chat ID and the current forum topic ID.
+`/unbind_server <host>` removes it. `/disk_status` requests a fresh disk-space
+snapshot without waiting for an alert.
+
+Disk inspection uses `/usr/local/sbin/hermes-disk-report`. The SSH account may
+run only its validated `summary` and `top-home` modes through `sudo`; arbitrary
+paths and shell commands are not accepted.
 
 ## Local verification
 

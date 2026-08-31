@@ -21,6 +21,11 @@ class Settings:
     gpu_idle_minimum_duration_seconds: int = 1800
     gpu_idle_minimum_samples: int = 6
     gpu_idle_notification_cooldown_seconds: int = 43200
+    disk_monitor_enabled: bool = True
+    disk_monitor_interval_seconds: int = 1800
+    disk_warning_free_percent: int = 15
+    disk_critical_free_percent: int = 5
+    disk_notification_cooldown_seconds: int = 21600
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -77,5 +82,21 @@ class Settings:
             ),
             gpu_idle_notification_cooldown_seconds=int(
                 os.environ.get("GPU_IDLE_NOTIFICATION_COOLDOWN_SECONDS", "43200")
+            ),
+            disk_monitor_enabled=os.environ.get(
+                "DISK_MONITOR_ENABLED", "true"
+            ).lower()
+            in {"1", "true", "yes", "on"},
+            disk_monitor_interval_seconds=int(
+                os.environ.get("DISK_MONITOR_INTERVAL_SECONDS", "1800")
+            ),
+            disk_warning_free_percent=int(
+                os.environ.get("DISK_WARNING_FREE_PERCENT", "15")
+            ),
+            disk_critical_free_percent=int(
+                os.environ.get("DISK_CRITICAL_FREE_PERCENT", "5")
+            ),
+            disk_notification_cooldown_seconds=int(
+                os.environ.get("DISK_NOTIFICATION_COOLDOWN_SECONDS", "21600")
             ),
         )

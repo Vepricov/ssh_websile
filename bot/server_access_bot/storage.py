@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .domain import (
     Application,
+    DiskUsageSample,
     GpuIdleCandidate,
     GpuIdleIncident,
     GpuProcessAction,
@@ -14,6 +15,7 @@ from .domain import (
     Profile,
     ProvisionedAccess,
     RegistryMatch,
+    ServerChatBinding,
 )
 
 
@@ -122,6 +124,32 @@ class Storage:
                     term_requested_at INTEGER,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS server_chat_bindings (
+                    host TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL,
+                    message_thread_id INTEGER,
+                    bound_by INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS disk_samples (
+                    host TEXT NOT NULL,
+                    filesystem_key TEXT NOT NULL,
+                    paths TEXT NOT NULL,
+                    total_bytes INTEGER NOT NULL,
+                    used_bytes INTEGER NOT NULL,
+                    available_bytes INTEGER NOT NULL,
+                    total_inodes INTEGER NOT NULL,
+                    free_inodes INTEGER NOT NULL,
+                    sampled_at INTEGER NOT NULL,
+                    PRIMARY KEY (host, filesystem_key, sampled_at)
+                );
+                CREATE TABLE IF NOT EXISTS disk_alert_state (
+                    host TEXT NOT NULL,
+                    filesystem_key TEXT NOT NULL,
+                    last_level TEXT NOT NULL,
+                    last_notified_at INTEGER,
+                    PRIMARY KEY (host, filesystem_key)
+                );
                 """
             )
             db.execute(
@@ -187,6 +215,168 @@ class Storage:
                 ON registry_users(source_telegram_username COLLATE NOCASE)
                 """
             )
+
+    def bind_server_chat(
+        self,
+        host: str,
+        chat_id: int,
+        message_thread_id: int | None,
+        bound_by: int,
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO server_chat_bindings (
+                    host, chat_id, message_thread_id, bound_by
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(host) DO UPDATE SET
+                    chat_id=excluded.chat_id,
+                    message_thread_id=excluded.message_thread_id,
+                    bound_by=excluded.bound_by,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (host, chat_id, message_thread_id, bound_by),
+            )
+
+    def server_chat_binding_for(self, host: str) -> ServerChatBinding | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM server_chat_bindings WHERE host = ?", (host,)
+            ).fetchone()
+        if row is None:
+            return None
+        return ServerChatBinding(
+            host=str(row["host"]),
+            chat_id=int(row["chat_id"]),
+            message_thread_id=(
+                None
+                if row["message_thread_id"] is None
+                else int(row["message_thread_id"])
+            ),
+            bound_by=int(row["bound_by"]),
+        )
+
+    def unbind_server_chat(self, host: str) -> bool:
+        with self._connect() as db:
+            deleted = db.execute(
+                "DELETE FROM server_chat_bindings WHERE host = ?", (host,)
+            )
+        return deleted.rowcount == 1
+
+    @staticmethod
+    def _disk_sample_from_row(row: sqlite3.Row) -> DiskUsageSample:
+        return DiskUsageSample(
+            host=str(row["host"]),
+            filesystem_key=str(row["filesystem_key"]),
+            paths=tuple(str(path) for path in json.loads(str(row["paths"]))),
+            total_bytes=int(row["total_bytes"]),
+            used_bytes=int(row["used_bytes"]),
+            available_bytes=int(row["available_bytes"]),
+            total_inodes=int(row["total_inodes"]),
+            free_inodes=int(row["free_inodes"]),
+            sampled_at=int(row["sampled_at"]),
+        )
+
+    def record_disk_sample(
+        self, sample: DiskUsageSample
+    ) -> tuple[DiskUsageSample | None, DiskUsageSample | None]:
+        with self._connect() as db:
+            previous_row = db.execute(
+                """
+                SELECT * FROM disk_samples
+                WHERE host = ? AND filesystem_key = ? AND sampled_at < ?
+                ORDER BY sampled_at DESC LIMIT 1
+                """,
+                (sample.host, sample.filesystem_key, sample.sampled_at),
+            ).fetchone()
+            day_row = db.execute(
+                """
+                SELECT * FROM disk_samples
+                WHERE host = ? AND filesystem_key = ? AND sampled_at <= ?
+                ORDER BY sampled_at DESC LIMIT 1
+                """,
+                (sample.host, sample.filesystem_key, sample.sampled_at - 86400),
+            ).fetchone()
+            if day_row is None:
+                day_row = db.execute(
+                    """
+                    SELECT * FROM disk_samples
+                    WHERE host = ? AND filesystem_key = ? AND sampled_at < ?
+                    ORDER BY sampled_at ASC LIMIT 1
+                    """,
+                    (sample.host, sample.filesystem_key, sample.sampled_at),
+                ).fetchone()
+            db.execute(
+                """
+                INSERT OR REPLACE INTO disk_samples (
+                    host, filesystem_key, paths, total_bytes, used_bytes,
+                    available_bytes, total_inodes, free_inodes, sampled_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sample.host,
+                    sample.filesystem_key,
+                    json.dumps(sample.paths),
+                    sample.total_bytes,
+                    sample.used_bytes,
+                    sample.available_bytes,
+                    sample.total_inodes,
+                    sample.free_inodes,
+                    sample.sampled_at,
+                ),
+            )
+            db.execute(
+                "DELETE FROM disk_samples WHERE sampled_at < ?",
+                (sample.sampled_at - 30 * 86400,),
+            )
+        return (
+            None if previous_row is None else self._disk_sample_from_row(previous_row),
+            None if day_row is None else self._disk_sample_from_row(day_row),
+        )
+
+    def claim_disk_alert(
+        self,
+        host: str,
+        filesystem_key: str,
+        level: str,
+        *,
+        now: int,
+        cooldown_seconds: int,
+    ) -> bool:
+        severity = {"normal": 0, "warning": 1, "critical": 2}
+        if level not in severity:
+            raise ValueError("invalid disk alert level")
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT last_level, last_notified_at FROM disk_alert_state
+                WHERE host = ? AND filesystem_key = ?
+                """,
+                (host, filesystem_key),
+            ).fetchone()
+            should_notify = level != "normal" and (
+                row is None
+                or severity[level] > severity.get(str(row["last_level"]), 0)
+                or row["last_notified_at"] is None
+                or now - int(row["last_notified_at"]) >= cooldown_seconds
+            )
+            last_notified_at = (
+                now
+                if should_notify
+                else None if row is None else row["last_notified_at"]
+            )
+            db.execute(
+                """
+                INSERT INTO disk_alert_state (
+                    host, filesystem_key, last_level, last_notified_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(host, filesystem_key) DO UPDATE SET
+                    last_level=excluded.last_level,
+                    last_notified_at=excluded.last_notified_at
+                """,
+                (host, filesystem_key, level, last_notified_at),
+            )
+        return should_notify
 
     @staticmethod
     def _gpu_process_action_from_row(row: sqlite3.Row) -> GpuProcessAction:

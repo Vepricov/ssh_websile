@@ -93,3 +93,24 @@ class GpuProcessAction:
     status: str
     expires_at: int
     term_requested_at: int | None = None
+
+
+@dataclass(frozen=True)
+class ServerChatBinding:
+    host: str
+    chat_id: int
+    message_thread_id: int | None
+    bound_by: int
+
+
+@dataclass(frozen=True)
+class DiskUsageSample:
+    host: str
+    filesystem_key: str
+    paths: tuple[str, ...]
+    total_bytes: int
+    used_bytes: int
+    available_bytes: int
+    total_inodes: int
+    free_inodes: int
+    sampled_at: int

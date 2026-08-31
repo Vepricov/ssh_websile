@@ -27,6 +27,12 @@ from aiogram.types import (
 )
 
 from .config import Settings
+from .disk_monitoring import (
+    DiskMonitor,
+    DiskScanner,
+    format_disk_status,
+    run_disk_monitor,
+)
 from .domain import (
     Application,
     GpuProcessAction,
@@ -39,6 +45,8 @@ from .monitoring import (
     GpuFleetScanner,
     GpuIdleMonitor,
     GpuIdlePolicy,
+    GpuStatusScanner,
+    format_gpu_status,
     run_gpu_idle_monitor,
 )
 from .process_control import (
@@ -107,7 +115,10 @@ MAIN_MENU = ReplyKeyboardMarkup(
             KeyboardButton(
                 text="➕ Получить доступ", web_app=WebAppInfo(url=SERVER_FORM_URL)
             ),
+        ],
+        [
             KeyboardButton(text="📚 Сайт и правила"),
+            KeyboardButton(text="📡 Статус серверов"),
         ],
     ],
     resize_keyboard=True,
@@ -588,6 +599,8 @@ def build_router(
     demo_user_ids: frozenset[int] = frozenset(),
     admin_user_ids: frozenset[int] = frozenset(),
     process_controller: GpuProcessController | None = None,
+    gpu_status_scanner: GpuStatusScanner | None = None,
+    disk_scanner: DiskScanner | None = None,
 ) -> Router:
     router = Router()
 
@@ -1227,6 +1240,74 @@ def build_router(
             available_servers_text(), reply_markup=available_servers_keyboard()
         )
 
+    @router.message(Command("status"))
+    @router.message(F.text == "📡 Статус серверов")
+    async def gpu_status(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if gpu_status_scanner is None:
+            await message.answer("Мониторинг серверов временно недоступен.")
+            return
+        progress = await message.answer("Проверяю серверы и GPU…")
+        statuses = await asyncio.to_thread(gpu_status_scanner.scan)
+        await progress.edit_text(format_gpu_status(statuses))
+
+    @router.message(Command("disk_status"))
+    async def disk_status(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if disk_scanner is None:
+            await message.answer("Мониторинг дисков временно недоступен.")
+            return
+        progress = await message.answer("Проверяю свободное место…")
+        statuses = await asyncio.to_thread(disk_scanner.scan)
+        await progress.edit_text(format_disk_status(statuses))
+
+    @router.message(Command("bind_server"))
+    async def bind_server_chat(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if message.from_user is None or message.from_user.id not in admin_user_ids:
+            await message.answer("Привязывать серверные чаты может только владелец.")
+            return
+        if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+            await message.answer(
+                "Запустите команду в нужном серверном чате или его теме."
+            )
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        host = parts[1].strip() if len(parts) == 2 else ""
+        allowed_hosts = set(disk_scanner.hosts) if disk_scanner is not None else set()
+        if host not in allowed_hosts:
+            await message.answer(
+                "Укажите сервер: <code>/bind_server brain_lab</code>, "
+                "<code>/bind_server shkodnik_opt</code> или "
+                "<code>/bind_server vv_h200</code>."
+            )
+            return
+        await asyncio.to_thread(
+            service.storage.bind_server_chat,
+            host,
+            message.chat.id,
+            message.message_thread_id,
+            message.from_user.id,
+        )
+        await message.answer(
+            f"Этот чат привязан к <b>{html.escape(SERVER_NAMES[host])}</b>. "
+            "Сюда будут приходить предупреждения о диске."
+        )
+
+    @router.message(Command("unbind_server"))
+    async def unbind_server_chat(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if message.from_user is None or message.from_user.id not in admin_user_ids:
+            await message.answer("Отвязывать серверные чаты может только владелец.")
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        host = parts[1].strip() if len(parts) == 2 else ""
+        if host not in SERVER_NAMES:
+            await message.answer("Укажите сервер после команды /unbind_server.")
+            return
+        removed = await asyncio.to_thread(service.storage.unbind_server_chat, host)
+        await message.answer("Привязка удалена." if removed else "Привязки не было.")
+
     @router.callback_query(F.data == "catalog:mlsub")
     async def mlsub_catalog(callback: CallbackQuery, state: FSMContext) -> None:
         await state.clear()
@@ -1342,6 +1423,8 @@ async def run(settings: Settings) -> None:
     process_controller = GpuProcessController(
         sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids)
     )
+    gpu_status_scanner = GpuStatusScanner(tuple(SERVER_NAMES))
+    disk_scanner = DiskScanner(tuple(SERVER_NAMES))
     sheets = GoogleSheetsRepository(
         settings.google_service_account_file,
         settings.spreadsheet_id,
@@ -1359,9 +1442,12 @@ async def run(settings: Settings) -> None:
             settings.demo_user_ids,
             settings.admin_user_ids,
             process_controller,
+            gpu_status_scanner,
+            disk_scanner,
         )
     )
     monitor_task = None
+    disk_monitor_task = None
     if settings.gpu_monitor_enabled:
         policy = GpuIdlePolicy(
             interval_seconds=settings.gpu_monitor_interval_seconds,
@@ -1394,6 +1480,24 @@ async def run(settings: Settings) -> None:
                 process_controller=process_controller,
             )
         )
+    if settings.disk_monitor_enabled:
+        disk_monitor = DiskMonitor(
+            storage,
+            disk_scanner,
+            warning_free_percent=settings.disk_warning_free_percent,
+            critical_free_percent=settings.disk_critical_free_percent,
+            notification_cooldown_seconds=(
+                settings.disk_notification_cooldown_seconds
+            ),
+        )
+        disk_monitor_task = asyncio.create_task(
+            run_disk_monitor(
+                bot,
+                disk_monitor,
+                disk_scanner,
+                interval_seconds=settings.disk_monitor_interval_seconds,
+            )
+        )
     await bot.set_my_commands(
         [
             BotCommand(command="start", description="Открыть главное меню"),
@@ -1401,6 +1505,8 @@ async def run(settings: Settings) -> None:
             BotCommand(command="myinfo", description="Показать профиль"),
             BotCommand(command="profile", description="Показать профиль"),
             BotCommand(command="servers", description="Показать мои серверы"),
+            BotCommand(command="status", description="Показать загрузку GPU"),
+            BotCommand(command="disk_status", description="Показать свободное место"),
             BotCommand(command="demo", description="Безопасно проверить onboarding"),
             BotCommand(command="cancel", description="Отменить текущее действие"),
         ]
@@ -1414,6 +1520,10 @@ async def run(settings: Settings) -> None:
             monitor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await monitor_task
+        if disk_monitor_task is not None:
+            disk_monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await disk_monitor_task
 
 
 def main() -> None:

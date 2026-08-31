@@ -43,6 +43,22 @@ class GpuScan:
 
 
 @dataclass(frozen=True)
+class GpuDeviceStatus:
+    index: int
+    name: str
+    total_memory_mb: int
+    used_memory_mb: int
+    utilization_percent: int
+
+
+@dataclass(frozen=True)
+class ServerGpuStatus:
+    host: str
+    reachable: bool
+    devices: tuple[GpuDeviceStatus, ...]
+
+
+@dataclass(frozen=True)
 class GpuIdlePolicy:
     interval_seconds: int = 300
     memory_threshold_mb: int = 4096
@@ -224,6 +240,111 @@ class GpuFleetScanner:
                 continue
             result.append((parts[0], pid, memory, username))
         return result
+
+
+class GpuStatusScanner:
+    GPU_QUERY = GpuFleetScanner.GPU_QUERY
+
+    def __init__(
+        self,
+        hosts: Sequence[str],
+        runner: Runner | None = None,
+    ) -> None:
+        self.hosts = tuple(hosts)
+        self.runner = runner or GpuFleetScanner._run_ssh
+
+    def scan(self) -> tuple[ServerGpuStatus, ...]:
+        def safe_run(host: str) -> tuple[int, str]:
+            try:
+                return self.runner(host, self.GPU_QUERY)
+            except (OSError, subprocess.SubprocessError, TimeoutError):
+                return 255, ""
+
+        with ThreadPoolExecutor(max_workers=max(1, len(self.hosts))) as executor:
+            futures = {host: executor.submit(safe_run, host) for host in self.hosts}
+
+        statuses = []
+        for host in self.hosts:
+            return_code, output = futures[host].result()
+            statuses.append(
+                ServerGpuStatus(
+                    host=host,
+                    reachable=return_code == 0,
+                    devices=(
+                        self._parse_devices(output) if return_code == 0 else ()
+                    ),
+                )
+            )
+        return tuple(statuses)
+
+    @staticmethod
+    def _parse_devices(text: str) -> tuple[GpuDeviceStatus, ...]:
+        devices = []
+        for line in text.splitlines():
+            parts = [part.strip() for part in line.split(",")]
+            if len(parts) != 7:
+                continue
+            numbers = [GpuFleetScanner._non_negative_integer(value) for value in parts]
+            index, total, used, utilization = (
+                numbers[0],
+                numbers[3],
+                numbers[4],
+                numbers[6],
+            )
+            if (
+                index is None
+                or total is None
+                or used is None
+                or utilization is None
+                or utilization > 100
+            ):
+                continue
+            devices.append(
+                GpuDeviceStatus(
+                    index=index,
+                    name=parts[2],
+                    total_memory_mb=total,
+                    used_memory_mb=used,
+                    utilization_percent=utilization,
+                )
+            )
+        return tuple(sorted(devices, key=lambda device: device.index))
+
+
+def format_gpu_status(statuses: Sequence[ServerGpuStatus]) -> str:
+    sections = [
+        "📡 <b>Статус GPU прямо сейчас</b>",
+        "Загрузка и память обновлены при нажатии кнопки.",
+    ]
+    for status in statuses:
+        server_name = html.escape(PUBLIC_SERVER_NAMES.get(status.host, status.host))
+        if not status.reachable:
+            sections.append(
+                f"🔴 <b>{server_name}</b>\nСервер недоступен по SSH."
+            )
+            continue
+        if not status.devices:
+            sections.append(
+                f"🟡 <b>{server_name}</b>\nСервер доступен, GPU не найдены."
+            )
+            continue
+        lines = [f"🟢 <b>{server_name}</b>"]
+        for device in status.devices:
+            filled = min(10, (device.utilization_percent + 9) // 10)
+            bar = "█" * filled + "░" * (10 - filled)
+            lines.extend(
+                [
+                    f"GPU {device.index} · {html.escape(device.name)}",
+                    (
+                        f"<code>{bar}</code> {device.utilization_percent}% · "
+                        f"{device.used_memory_mb / 1024:.1f} / "
+                        f"{device.total_memory_mb / 1024:.1f} GB VRAM"
+                    ),
+                ]
+            )
+        sections.append("\n".join(lines))
+    sections.append("Нажмите «📡 Статус серверов» ещё раз, чтобы обновить данные.")
+    return "\n\n".join(sections)
 
 
 class GpuIdleMonitor:

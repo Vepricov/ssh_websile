@@ -10,7 +10,9 @@ from server_access_bot.domain import (
 )
 from server_access_bot.monitoring import (
     GpuFleetScanner,
+    GpuStatusScanner,
     deliver_gpu_idle_incidents,
+    format_gpu_status,
     format_user_idle_notification,
 )
 from server_access_bot.storage import Storage
@@ -48,6 +50,30 @@ def test_scanner_finds_user_holding_vram_on_an_idle_gpu() -> None:
     assert candidate.server_username == "alice"
     assert candidate.used_memory_mb == 9000
     assert candidate.pids == (101, 102)
+
+
+def test_gpu_status_shows_each_card_and_unreachable_server() -> None:
+    gpu_output = (
+        "0, GPU-aaaa, NVIDIA A100 80GB PCIe, 81920, 24576, 57344, 31\n"
+        "1, GPU-bbbb, NVIDIA A100 80GB PCIe, 81920, 1024, 80896, 0\n"
+    )
+
+    def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        assert command == GpuStatusScanner.GPU_QUERY
+        return (0, gpu_output) if host == "brain_lab" else (255, "")
+
+    statuses = GpuStatusScanner(
+        hosts=("brain_lab", "vv_h200"), runner=runner
+    ).scan()
+    text = format_gpu_status(statuses)
+
+    assert "🟢 <b>Новый сервер (BrainLab)</b>" in text
+    assert "GPU 0 · NVIDIA A100 80GB PCIe" in text
+    assert "31%" in text
+    assert "24.0 / 80.0 GB VRAM" in text
+    assert "GPU 1" in text
+    assert "🔴 <b>H200</b>" in text
+    assert "Сервер недоступен по SSH" in text
 
 
 def test_idle_incident_requires_full_duration_and_has_durable_cooldown(
@@ -207,6 +233,11 @@ def test_monitor_policy_defaults_are_loaded_from_environment(
     assert settings.gpu_idle_utilization_threshold_percent == 2
     assert settings.gpu_idle_minimum_duration_seconds == 1800
     assert settings.gpu_idle_notification_cooldown_seconds == 43200
+    assert settings.disk_monitor_enabled is True
+    assert settings.disk_monitor_interval_seconds == 1800
+    assert settings.disk_warning_free_percent == 15
+    assert settings.disk_critical_free_percent == 5
+    assert settings.disk_notification_cooldown_seconds == 21600
 
 
 def test_unmapped_server_username_is_reported_only_to_admin(tmp_path) -> None:
