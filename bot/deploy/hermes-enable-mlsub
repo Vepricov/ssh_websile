@@ -23,6 +23,20 @@ if ! getent group "$GROUP" >/dev/null || [ ! -x "$MLSUB" ]; then
     exit 69
 fi
 
+USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
+if [[ "$USER_HOME" != /* ]] || [ ! -d "$USER_HOME" ]; then
+    echo "invalid user home" >&2
+    exit 70
+fi
+for DOCUMENT in BRAINLAB_RULES.md SERVER_GUIDE.md; do
+    SOURCE="/etc/skel/$DOCUMENT"
+    if [ ! -f "$SOURCE" ]; then
+        echo "user documentation is not installed" >&2
+        exit 69
+    fi
+    runuser -u "$USERNAME" -- cp --no-clobber -- "$SOURCE" "$USER_HOME/"
+done
+
 if id -nG "$USERNAME" | tr ' ' '\n' | grep -qx "$GROUP"; then
     STATUS=EXISTS
 else

@@ -421,28 +421,86 @@ def test_repeat_request_only_provisions_new_servers(tmp_path: Path) -> None:
     ]
 
 
-def test_mlsub_is_a_separate_service_but_ensures_brain_lab_access(
+def test_mlsub_requires_existing_brain_lab_access(
     tmp_path: Path,
 ) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
     provisioner = FakeProvisioner()
     service = AccessService(storage, provisioner)
 
-    result = service.submit(
-        Application(
-            telegram_user_id=101,
-            telegram_username="alice_tg",
-            full_name="Alice Smith",
-            server_username="alice",
-            access_term="бессрочно",
-            recommender="Bob Jones",
-            activity="distributed training",
-            servers=("mlsub",),
-        )
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="distributed training",
+        servers=("mlsub",),
     )
 
-    assert [access.host for access in result] == ["brain_lab", "mlsub"]
+    try:
+        service.validate_request(application)
+    except ValidationError as error:
+        assert "Сначала подайте заявку" in str(error)
+        assert "BrainLab" in str(error)
+    else:
+        raise AssertionError("mlsub request was accepted without BrainLab access")
+
+    assert provisioner.calls == []
+
+    try:
+        service.submit(application)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("mlsub was provisioned without BrainLab access")
+
+
+def test_mlsub_provisions_only_after_brain_lab_access_exists(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    provisioner = FakeProvisioner()
+    service = AccessService(storage, provisioner)
+    base = {
+        "telegram_user_id": 101,
+        "telegram_username": "alice_tg",
+        "full_name": "Alice Smith",
+        "server_username": "alice",
+        "access_term": "бессрочно",
+        "recommender": "Bob Jones",
+        "activity": "distributed training",
+    }
+    service.submit(Application(servers=("brain_lab",), **base))
+
+    result = service.submit(Application(servers=("mlsub",), **base))
+
+    assert [access.host for access in result] == ["mlsub"]
     assert provisioner.calls == [("brain_lab", "alice"), ("mlsub", "alice")]
+
+
+def test_mlsub_must_be_submitted_as_a_separate_request(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    provisioner = FakeProvisioner()
+    service = AccessService(storage, provisioner)
+    base = {
+        "telegram_user_id": 101,
+        "telegram_username": "alice_tg",
+        "full_name": "Alice Smith",
+        "server_username": "alice",
+        "access_term": "бессрочно",
+        "recommender": "Bob Jones",
+        "activity": "distributed training",
+    }
+    service.submit(Application(servers=("brain_lab",), **base))
+
+    try:
+        service.validate_request(Application(servers=("mlsub", "shkodnik_opt"), **base))
+    except ValidationError as error:
+        assert "отдельной заявкой" in str(error)
+    else:
+        raise AssertionError("mlsub was combined with another server request")
 
 
 def test_existing_user_cannot_switch_unix_username(tmp_path: Path) -> None:

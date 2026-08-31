@@ -142,6 +142,15 @@
         if (payload.servers.length === 0) {
             setError(serversError, "Выберите хотя бы один сервер.");
             valid = false;
+        } else if (
+            payload.servers.includes("mlsub")
+            && payload.servers.length > 1
+        ) {
+            setError(
+                serversError,
+                "mlsub оформляется отдельной заявкой. Оставьте выбранным только mlsub.",
+            );
+            valid = false;
         }
         return valid;
     }

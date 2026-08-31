@@ -87,7 +87,7 @@ class AccessService:
         with self._submit_lock:
             return self._submit_locked(application)
 
-    def _submit_locked(self, application: Application) -> list[ProvisionedAccess]:
+    def validate_request(self, application: Application) -> None:
         validate(application)
         current_username = self.storage.server_username_for(
             application.telegram_user_id
@@ -100,9 +100,26 @@ class AccessService:
                 f"Ваш серверный ник уже зафиксирован: {current_username}. "
                 "Для его смены обратитесь к администратору."
             )
+        if "mlsub" in application.servers and len(application.servers) != 1:
+            raise ValidationError(
+                "mlsub оформляется отдельной заявкой. Уберите остальные "
+                "серверы и отправьте заявку только на mlsub."
+            )
+        if (
+            "mlsub" in application.servers
+            and not self.storage.has_access(application.telegram_user_id, "brain_lab")
+            and not self.storage.has_registered_service(
+                application.telegram_user_id, "brain_lab"
+            )
+        ):
+            raise ValidationError(
+                "Сначала подайте заявку на Новый сервер (BrainLab) и дождитесь "
+                "её одобрения. После выдачи доступа вернитесь к заявке на mlsub."
+            )
+
+    def _submit_locked(self, application: Application) -> list[ProvisionedAccess]:
+        self.validate_request(application)
         requested_hosts = list(application.servers)
-        if "mlsub" in requested_hosts and "brain_lab" not in requested_hosts:
-            requested_hosts.insert(0, "brain_lab")
         missing_hosts = [
             host
             for host in requested_hosts

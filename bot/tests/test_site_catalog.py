@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -15,6 +14,8 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     assert resources["h200"]["access_contact"] == "@brainlab_server_access_bot"
     assert "@shkodnik1917" not in json.dumps(resources["h200"])
     assert resources["mlsub"]["kind"] == "compute-service"
+    assert resources["mlsub"]["requires"] == ["new_server"]
+    assert resources["mlsub"]["approval"] == "separate-admin-approval"
     assert resources["alibaba_ascend"]["status"] == "testing"
     assert resources["alibaba_ascend"]["requestable"] is False
     serialized = json.dumps(data).lower()
@@ -34,3 +35,10 @@ def test_agent_entrypoint_links_catalog_and_resource_guides() -> None:
     assert "helpdesk02@vkusvill.ru" in llms
     assert "@brainlab_server_access_bot" in llms
     assert "@shkodnik1917" not in llms
+
+
+def test_web_form_requires_mlsub_to_be_requested_separately() -> None:
+    form_logic = (ROOT / "server-form.js").read_text()
+
+    assert 'payload.servers.includes("mlsub")' in form_logic
+    assert "mlsub оформляется отдельной заявкой" in form_logic

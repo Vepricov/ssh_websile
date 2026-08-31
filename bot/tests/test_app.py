@@ -15,6 +15,7 @@ from server_access_bot.app import (
     registry_confirmation_text,
     registry_link_can_be_claimed,
     registry_link_is_trusted,
+    request_requires_admin,
     server_dashboard_keyboard,
     server_dashboard_text,
     server_request_menu,
@@ -140,6 +141,24 @@ def test_add_server_button_opens_prefilled_server_form() -> None:
     assert button.web_app.url.endswith("/server-form.html?server=brain_lab")
 
 
+def test_mlsub_add_button_appears_only_after_brain_lab_access() -> None:
+    without_brain_lab = server_dashboard_keyboard([], ())
+    with_brain_lab = server_dashboard_keyboard([], ("brain_lab",))
+
+    assert without_brain_lab is not None
+    assert with_brain_lab is not None
+    callbacks_without = [
+        button.callback_data
+        for row in without_brain_lab.inline_keyboard
+        for button in row
+    ]
+    callbacks_with = [
+        button.callback_data for row in with_brain_lab.inline_keyboard for button in row
+    ]
+    assert "servers:add:mlsub" not in callbacks_without
+    assert "servers:add:mlsub" in callbacks_with
+
+
 def test_confirmation_buttons_are_bound_to_one_request() -> None:
     keyboard = confirmation_keyboard("request-123")
 
@@ -152,6 +171,42 @@ def test_admin_approval_is_bound_to_a_durable_request() -> None:
 
     assert keyboard.inline_keyboard[0][0].callback_data == "admin:approve:request-123"
     assert keyboard.inline_keyboard[0][1].callback_data == "admin:reject:request-123"
+
+
+def test_mlsub_always_requires_separate_admin_approval() -> None:
+    application = application_from_request(
+        Profile(101, "alice_tg", "Alice Smith", "Bob Jones"),
+        ServerRequest(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            server_username="alice",
+            access_term="бессрочно",
+            activity="distributed training",
+            servers=("mlsub",),
+        ),
+    )
+
+    assert request_requires_admin(application, user_is_known=True)
+    assert not request_requires_admin(
+        application, user_is_known=True, mlsub_is_missing=False
+    )
+
+
+def test_known_user_can_still_add_managed_server_without_second_approval() -> None:
+    application = application_from_request(
+        Profile(101, "alice_tg", "Alice Smith", "Bob Jones"),
+        ServerRequest(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            server_username="alice",
+            access_term="бессрочно",
+            activity="fine-tuning",
+            servers=("brain_lab",),
+        ),
+    )
+
+    assert not request_requires_admin(application, user_is_known=True)
+    assert request_requires_admin(application, user_is_known=False)
 
 
 def test_gpu_process_buttons_are_bound_to_one_action_token() -> None:
@@ -277,6 +332,8 @@ def test_available_server_message_is_complete() -> None:
     assert "@shkodnik1917" not in catalog
     assert "mlsub / Cloud.ru" in catalog
     assert "отдельный вычислительный сервис" in catalog
+    assert "уже выданный доступ к BrainLab" in catalog
+    assert "отдельного одобрения администратора" in catalog
     assert "Alibaba Ascend" in catalog
     assert "тестируем" in catalog
     assert '<a href="https://t.me/aloeme">@aloeme</a>' in catalog
@@ -296,10 +353,10 @@ def test_onboarding_explains_the_main_user_flow() -> None:
     assert "пароли" in text
 
 
-def test_demo_accesses_are_clearly_fake_and_include_mlsub_dependency() -> None:
+def test_demo_accesses_are_fake_and_do_not_auto_add_brain_lab() -> None:
     accesses = demo_accesses("alice", ("mlsub", "vv_h200"))
 
-    assert [access.host for access in accesses] == ["brain_lab", "mlsub", "vv_h200"]
-    assert accesses[0].password == "DEMO-PASSWORD"
-    assert accesses[1].password is None
+    assert [access.host for access in accesses] == ["mlsub", "vv_h200"]
+    assert accesses[0].password is None
+    assert accesses[1].password == "DEMO-PASSWORD"
     assert all(access.created is False for access in accesses)

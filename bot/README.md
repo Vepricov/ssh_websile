@@ -25,12 +25,13 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
    `mlsub / Cloud.ru` service, and enters only the Unix username, access term,
    and optional activity.
 7. The bot validates the untrusted Web App payload. Known registry users can
-   add resources immediately; a new identity creates a durable request that a
-   configured admin approves or rejects with one Telegram button.
+   add managed servers immediately. Every `mlsub` request and every new
+   identity create a durable request that a configured admin approves or
+   rejects with one Telegram button.
 8. After approval, the bot provisions the accounts and sends the credentials
    directly to the applicant's immutable Telegram numeric user ID. Requesting
-   `mlsub` first ensures a BrainLab account and then enables the protected
-   `mlsub-students` group through a separate root-owned helper.
+   `mlsub` requires an already approved BrainLab account. After the separate
+   approval, a root-owned helper enables the protected `mlsub-students` group.
 9. `Мои серверы` always lists the complete catalog. Imported resources show
    the Unix username but explicitly state that their old password is not stored.
    The Yandex server links to `@aloeme` and is never provisioned by this bot.
@@ -94,6 +95,15 @@ snapshot without waiting for an alert.
 Disk inspection uses `/usr/local/sbin/hermes-disk-report`. The SSH account may
 run only its validated `summary` and `top-home` modes through `sudo`; arbitrary
 paths and shell commands are not accepted.
+
+## User documentation
+
+Install `deploy/user-docs/BRAINLAB_RULES.md` and the host-specific
+`deploy/user-docs/<host>/SERVER_GUIDE.md` into `/etc/skel` before enabling
+provisioning. New accounts receive exactly these two Markdown files through
+`useradd -m`. On BrainLab, `hermes-enable-mlsub` restores either missing file as
+the target Unix user before adding that user to `mlsub-students`; it never
+overwrites an existing file.
 
 ## Local verification
 

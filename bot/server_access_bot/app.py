@@ -275,7 +275,7 @@ def server_dashboard_keyboard(
     rows = [
         [InlineKeyboardButton(text=f"➕ {name}", callback_data=f"servers:add:{host}")]
         for host, name in {**SERVER_NAMES, **SERVICE_NAMES}.items()
-        if host not in existing
+        if host not in existing and (host != "mlsub" or "brain_lab" in existing)
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
@@ -341,6 +341,15 @@ def application_from_request(profile: Profile, request: ServerRequest) -> Applic
         activity=request.activity,
         servers=request.servers,
     )
+
+
+def request_requires_admin(
+    application: Application,
+    *,
+    user_is_known: bool,
+    mlsub_is_missing: bool = True,
+) -> bool:
+    return not user_is_known or (mlsub_is_missing and "mlsub" in application.servers)
 
 
 def application_data(application: Application) -> dict[str, object]:
@@ -415,7 +424,8 @@ def available_servers_text() -> str:
         "Без VPN подключение по SSH недоступно.\n\n"
         "<b>mlsub / Cloud.ru</b>\n"
         "отдельный вычислительный сервис для запуска задач в очереди Cloud.ru. "
-        "Доступ выдаётся через инфраструктуру BrainLab, но сервис управляется отдельно.\n\n"
+        "Для заявки нужен уже выданный доступ к BrainLab. mlsub включается "
+        "только после отдельного одобрения администратора.\n\n"
         "<b>Яндекс-сервер</b>\n"
         'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.\n\n'
         "<b>Alibaba Ascend</b>\n"
@@ -439,8 +449,6 @@ def demo_accesses(
     username: str, requested_services: Sequence[str]
 ) -> list[ProvisionedAccess]:
     services = list(requested_services)
-    if "mlsub" in services and "brain_lab" not in services:
-        services.insert(0, "brain_lab")
     connections = {
         "shkodnik_opt": f"ssh -p 10096 {username}@proxy2.cod.phystech.edu",
         "brain_lab": f"ssh -p 10210 {username}@proxy2.cod.phystech.edu",
@@ -601,7 +609,10 @@ def server_dashboard_text(
             "Доступ найден в таблице. Пароль используется от BrainLab."
         )
     else:
-        sections.append("○ <b>mlsub / Cloud.ru</b>\nДоступ ещё не добавлен.")
+        sections.append(
+            "○ <b>mlsub / Cloud.ru</b>\n"
+            "Сначала получите доступ к BrainLab, затем отправьте отдельную заявку."
+        )
     sections.append(
         "☁️ <b>Яндекс-сервер</b>\n"
         'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.'
@@ -852,14 +863,30 @@ def build_router(
                 reply_markup=MAIN_MENU,
             )
             return
+        try:
+            await asyncio.to_thread(service.validate_request, application)
+        except ValidationError as error:
+            await message.answer(str(error), reply_markup=MAIN_MENU)
+            return
         known_user = await asyncio.to_thread(
             service.storage.application_for, message.from_user.id
         )
         registry = await asyncio.to_thread(
             service.storage.registry_match_for, message.from_user.id
         )
+        mlsub_is_missing = not await asyncio.to_thread(
+            service.storage.has_access, message.from_user.id, "mlsub"
+        ) and not await asyncio.to_thread(
+            service.storage.has_registered_service,
+            message.from_user.id,
+            "mlsub",
+        )
         await state.clear()
-        if known_user is not None or registry is not None:
+        if not request_requires_admin(
+            application,
+            user_is_known=known_user is not None or registry is not None,
+            mlsub_is_missing=mlsub_is_missing,
+        ):
             await provision_application(
                 message.chat.id, message.from_user, application, bot
             )
@@ -878,7 +905,11 @@ def build_router(
             try:
                 await bot.send_message(
                     admin_id,
-                    "<b>Новая заявка на доступ</b>\n\n"
+                    (
+                        "<b>Отдельная заявка на mlsub</b>\n\n"
+                        if "mlsub" in application.servers
+                        else "<b>Новая заявка на доступ</b>\n\n"
+                    )
                     + application_summary(application_data(application)),
                     reply_markup=admin_approval_keyboard(request_id),
                 )
@@ -1367,8 +1398,9 @@ def build_router(
         if callback.message:
             await callback.message.answer(
                 "<b>mlsub / Cloud.ru</b>\n\n"
-                "Это отдельный сервис очереди задач. Бот сначала обеспечивает "
-                "учётную запись на BrainLab, затем включает доступ к mlsub.\n\n"
+                "Это отдельный сервис очереди задач. Для заявки нужен уже "
+                "выданный доступ к BrainLab. Доступ к mlsub включается только "
+                "после отдельного одобрения администратора.\n\n"
                 "После выдачи доступны команды: <code>mlsub run</code>, "
                 "<code>mlsub list</code>, <code>mlsub status</code>, "
                 "<code>mlsub logs</code> и <code>mlsub kill</code>.",
