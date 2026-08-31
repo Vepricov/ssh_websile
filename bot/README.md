@@ -41,7 +41,8 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
    are never rotated.
 12. `/demo` is restricted to `ACCESS_BOT_DEMO_USER_IDS` and exercises both
     forms with fake credentials without changing SQLite, Sheets, or Unix users.
-13. A read-only background monitor checks the three managed GPU servers every
+13. A read-only background monitor checks the managed GPU servers and the
+    external Yandex server every
     five minutes. It notifies a linked Telegram user only after that user's
     processes hold at least 4 GB VRAM on a GPU with at most 2% utilization for
     at least 30 minutes. The bot never stops processes automatically and sends
@@ -83,6 +84,7 @@ configured bot admin:
 /bind_server shkodnik_opt
 /bind_server brain_lab
 /bind_server vv_h200
+/bind_server yandex
 ```
 
 The binding stores both the Telegram chat ID and the current forum topic ID.
