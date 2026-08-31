@@ -84,6 +84,19 @@ def test_gpu_status_shows_each_card_and_unreachable_server() -> None:
     assert "Сервер недоступен по SSH" in text
 
 
+def test_gpu_status_uses_public_yandex_name() -> None:
+    def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        assert host == "yandex"
+        assert command == GpuStatusScanner.GPU_QUERY
+        return 0, "0, GPU-yyyy, NVIDIA A100-SXM4-80GB, 81920, 40960, 40960, 50\n"
+
+    statuses = GpuStatusScanner(hosts=("yandex",), runner=runner).scan()
+    text = format_gpu_status(statuses)
+
+    assert "🟢 <b>Яндекс-сервер</b>" in text
+    assert "yandex" not in text
+
+
 def test_idle_incident_requires_full_duration_and_has_durable_cooldown(
     tmp_path,
 ) -> None:

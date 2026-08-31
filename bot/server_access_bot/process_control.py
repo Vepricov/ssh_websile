@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from .domain import GpuProcessAction, ProcessIdentity
 from .storage import Storage
 
-HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200"})
+HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200", "yandex"})
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 HELPER = "/usr/local/sbin/hermes-gpu-process-control"
 PROCESS_ACTION_NEVER_EXPIRES_AT = 2**63 - 1
@@ -20,9 +20,11 @@ class GpuProcessController:
         self,
         run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         sudo_passwords: Mapping[str, str] | None = None,
+        nopasswd_hosts: Sequence[str] = (),
     ) -> None:
         self.run = run
         self.sudo_passwords = dict(sudo_passwords or {})
+        self.nopasswd_hosts = frozenset(nopasswd_hosts)
 
     @staticmethod
     def _validate_target(host: str, username: str) -> None:
@@ -38,8 +40,10 @@ class GpuProcessController:
 
     def _run(self, host: str, arguments: Sequence[str]) -> str:
         password = self.sudo_passwords.get(host)
-        if password is None:
+        uses_nopasswd = host in self.nopasswd_hosts
+        if password is None and not uses_nopasswd:
             raise ProcessControlError(f"{host}: sudo credential is unavailable")
+        sudo_arguments = ["sudo", "-n"] if uses_nopasswd else ["sudo", "-S"]
         try:
             completed = self.run(
                 [
@@ -50,12 +54,11 @@ class GpuProcessController:
                     "ConnectTimeout=10",
                     "--",
                     host,
-                    "sudo",
-                    "-S",
+                    *sudo_arguments,
                     HELPER,
                     *arguments,
                 ],
-                input=password + "\n",
+                input=None if uses_nopasswd else password + "\n",
                 text=True,
                 capture_output=True,
                 timeout=30,

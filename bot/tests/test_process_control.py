@@ -35,6 +35,29 @@ def test_controller_snapshots_and_signals_exact_process_identity() -> None:
     assert all(kwargs["input"] == "sudo-secret\n" for _, kwargs in calls)
 
 
+def test_controller_uses_non_interactive_sudo_for_yandex() -> None:
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, "303:987654\n", "")
+
+    controller = GpuProcessController(run=run, nopasswd_hosts={"yandex"})
+
+    identities = controller.snapshot("yandex", "alice", (303,))
+
+    assert identities == (ProcessIdentity(pid=303, start_ticks=987654),)
+    assert calls[0][0][-6:] == [
+        "sudo",
+        "-n",
+        "/usr/local/sbin/hermes-gpu-process-control",
+        "inspect",
+        "alice",
+        "303",
+    ]
+    assert calls[0][1]["input"] is None
+
+
 def test_controller_rejects_untrusted_targets_before_ssh() -> None:
     controller = GpuProcessController(sudo_passwords={"brain_lab": "secret"})
 

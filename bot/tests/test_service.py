@@ -283,6 +283,26 @@ def test_access_term_accepts_only_indefinite_or_current_iso_date() -> None:
             raise AssertionError(f"invalid access term was accepted: {access_term}")
 
 
+def test_yandex_monitoring_target_is_not_requestable() -> None:
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="fine-tuning",
+        servers=("yandex",),
+    )
+
+    try:
+        validate(application)
+    except ValidationError as error:
+        assert "Неизвестный сервер: yandex" in str(error)
+    else:
+        raise AssertionError("Yandex was accidentally made requestable")
+
+
 def test_user_can_provision_and_read_own_credentials(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
     provisioner = FakeProvisioner()

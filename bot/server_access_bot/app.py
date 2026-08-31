@@ -42,6 +42,7 @@ from .domain import (
     ServerRequest,
 )
 from .monitoring import (
+    PUBLIC_SERVER_NAMES,
     GpuFleetScanner,
     GpuIdleMonitor,
     GpuIdlePolicy,
@@ -240,7 +241,7 @@ def gpu_force_keyboard(token: str) -> InlineKeyboardMarkup:
 
 
 def gpu_action_text(action: GpuProcessAction) -> str:
-    server_name = SERVER_NAMES.get(action.host, action.host)
+    server_name = PUBLIC_SERVER_NAMES.get(action.host, action.host)
     pids = ", ".join(str(item.pid) for item in action.identities)
     return (
         f"<b>{html.escape(server_name)}</b>\n"
@@ -1327,8 +1328,9 @@ def build_router(
         if host not in allowed_hosts:
             await message.answer(
                 "Укажите сервер: <code>/bind_server brain_lab</code>, "
-                "<code>/bind_server shkodnik_opt</code> или "
-                "<code>/bind_server vv_h200</code>."
+                "<code>/bind_server shkodnik_opt</code>, "
+                "<code>/bind_server vv_h200</code> или "
+                "<code>/bind_server yandex</code>."
             )
             return
         await asyncio.to_thread(
@@ -1339,7 +1341,8 @@ def build_router(
             message.from_user.id,
         )
         await message.answer(
-            f"Этот чат привязан к <b>{html.escape(SERVER_NAMES[host])}</b>. "
+            f"Этот чат привязан к "
+            f"<b>{html.escape(PUBLIC_SERVER_NAMES[host])}</b>. "
             "Сюда будут приходить предупреждения о диске."
         )
 
@@ -1351,7 +1354,7 @@ def build_router(
             return
         parts = (message.text or "").split(maxsplit=1)
         host = parts[1].strip() if len(parts) == 2 else ""
-        if host not in SERVER_NAMES:
+        if host not in PUBLIC_SERVER_NAMES:
             await message.answer("Укажите сервер после команды /unbind_server.")
             return
         removed = await asyncio.to_thread(service.storage.unbind_server_chat, host)
@@ -1470,10 +1473,12 @@ async def run(settings: Settings) -> None:
     storage = Storage(settings.database_path, settings.encryption_key)
     service = AccessService(storage, SshProvisioner())
     process_controller = GpuProcessController(
-        sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids)
+        sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids),
+        nopasswd_hosts={"yandex"},
     )
-    gpu_status_scanner = GpuStatusScanner(tuple(SERVER_NAMES))
-    disk_scanner = DiskScanner(tuple(SERVER_NAMES))
+    monitored_hosts = tuple(PUBLIC_SERVER_NAMES)
+    gpu_status_scanner = GpuStatusScanner(monitored_hosts)
+    disk_scanner = DiskScanner(monitored_hosts)
     sheets = GoogleSheetsRepository(
         settings.google_service_account_file,
         settings.spreadsheet_id,
@@ -1513,7 +1518,7 @@ async def run(settings: Settings) -> None:
         monitor = GpuIdleMonitor(
             storage,
             GpuFleetScanner(
-                hosts=tuple(SERVER_NAMES),
+                hosts=monitored_hosts,
                 memory_threshold_mb=policy.memory_threshold_mb,
                 utilization_threshold_percent=(
                     policy.utilization_threshold_percent
