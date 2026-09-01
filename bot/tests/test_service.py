@@ -49,6 +49,26 @@ def test_profile_is_saved_without_server_fields(tmp_path: Path) -> None:
     assert storage.server_username_for(101) is None
 
 
+def test_access_hosts_can_be_read_without_decrypting_credentials(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    storage.save_profile(Profile(101, "alice_tg", "Alice Smith", "Bob Jones"))
+    storage.save_access(
+        101,
+        ProvisionedAccess(
+            host="brain_lab",
+            username="alice",
+            password="secret",
+            connection="ssh example",
+            group_url="https://t.me/example",
+            created=True,
+        ),
+    )
+
+    assert storage.access_hosts_for(101) == ("brain_lab",)
+
+
 def test_profile_storage_is_added_to_an_existing_database(tmp_path: Path) -> None:
     database = tmp_path / "bot.sqlite3"
     Storage(database, b"0" * 32)

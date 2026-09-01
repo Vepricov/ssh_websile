@@ -906,6 +906,17 @@ class Storage:
             ).fetchone()
         return row is not None
 
+    def access_hosts_for(self, telegram_user_id: int) -> tuple[str, ...]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT host FROM accesses
+                WHERE telegram_user_id = ? ORDER BY host
+                """,
+                (telegram_user_id,),
+            ).fetchall()
+        return tuple(str(row["host"]) for row in rows)
+
     def credentials_for(self, telegram_user_id: int) -> list[ProvisionedAccess]:
         with self._connect() as db:
             rows = db.execute(

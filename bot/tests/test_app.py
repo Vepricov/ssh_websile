@@ -9,6 +9,7 @@ from server_access_bot.app import (
     demo_accesses,
     gpu_force_keyboard,
     gpu_stop_confirmation_keyboard,
+    main_menu,
     my_info_text,
     onboarding_text,
     registry_confirmation_keyboard,
@@ -18,6 +19,7 @@ from server_access_bot.app import (
     request_requires_admin,
     server_dashboard_keyboard,
     server_dashboard_text,
+    server_form_url,
     server_request_menu,
 )
 from server_access_bot.domain import (
@@ -141,6 +143,19 @@ def test_add_server_button_opens_prefilled_server_form() -> None:
     assert button.web_app.url.endswith("/server-form.html?server=brain_lab")
 
 
+def test_server_form_url_prefills_username_and_existing_accesses() -> None:
+    url = server_form_url(
+        server_username="alice",
+        existing_services=("shkodnik_opt", "brain_lab", "yandex"),
+        requested_server="vv_h200",
+    )
+
+    assert url == (
+        "https://vepricov.github.io/ssh_websile/server-form.html?"
+        "server=vv_h200&username=alice&existing=shkodnik_opt%2Cbrain_lab%2Cyandex"
+    )
+
+
 def test_mlsub_add_button_appears_only_after_brain_lab_access() -> None:
     without_brain_lab = server_dashboard_keyboard([], ())
     with_brain_lab = server_dashboard_keyboard([], ("brain_lab",))
@@ -253,6 +268,19 @@ def test_main_menu_exposes_profile_catalog_info_and_access_actions() -> None:
     assert access_button.web_app is not None
     assert access_button.web_app.url == (
         "https://vepricov.github.io/ssh_websile/server-form.html"
+    )
+
+
+def test_main_menu_personalizes_access_form_from_saved_account() -> None:
+    menu = main_menu(
+        server_username="alice",
+        existing_services=("brain_lab", "shkodnik_opt"),
+    )
+
+    access_button = menu.keyboard[1][1]
+    assert access_button.web_app is not None
+    assert access_button.web_app.url.endswith(
+        "?username=alice&existing=brain_lab%2Cshkodnik_opt"
     )
 
 

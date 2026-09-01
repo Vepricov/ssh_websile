@@ -16,6 +16,14 @@
     const activity = document.getElementById("activity");
     const activityCount = document.getElementById("activity-count");
     const serverUsername = document.getElementById("server-username");
+    const urlParameters = new URLSearchParams(window.location.search);
+    const requestedServer = urlParameters.get("server");
+    const savedServerUsername = urlParameters.get("username");
+    const existingServers = new Set(
+        (urlParameters.get("existing") || "")
+            .split(",")
+            .filter(Boolean),
+    );
     const storageKey = "brainlab_server_request_v1";
     let submitted = false;
     let touched = false;
@@ -47,11 +55,11 @@
                 // Ignore a malformed cloud draft.
             }
             if (touched) {
-                applyRequestedServer();
+                applyBotContext();
                 return;
             }
             if (!draft) {
-                applyRequestedServer();
+                applyBotContext();
                 return;
             }
             if (typeof draft.server_username === "string") {
@@ -75,7 +83,7 @@
                     input.checked = draft.servers.includes(input.value);
                 }
             }
-            applyRequestedServer();
+            applyBotContext();
         };
         if (!cloudStorage?.getItem) {
             finish(null);
@@ -106,12 +114,25 @@
         saveTimer = window.setTimeout(saveDraft, 250);
     }
 
-    const requestedServer = new URLSearchParams(window.location.search).get("server");
-    function applyRequestedServer() {
+    function applyBotContext() {
+        if (
+            savedServerUsername
+            && /^[a-z_][a-z0-9_-]{0,31}$/.test(savedServerUsername)
+        ) {
+            serverUsername.value = savedServerUsername;
+        }
+        for (const input of form.querySelectorAll('input[name="servers"]')) {
+            if (!existingServers.has(input.value)) {
+                continue;
+            }
+            input.checked = true;
+            input.disabled = true;
+            input.closest(".server-card")?.setAttribute("aria-disabled", "true");
+        }
         const requestedCheckbox = Array.from(
             form.querySelectorAll('input[name="servers"]'),
         ).find((input) => input.value === requestedServer);
-        if (requestedCheckbox) {
+        if (requestedCheckbox && !requestedCheckbox.disabled) {
             requestedCheckbox.checked = true;
         }
     }
@@ -119,7 +140,9 @@
     loadDraft();
 
     function selectedServers() {
-        return Array.from(form.querySelectorAll('input[name="servers"]:checked'))
+        return Array.from(
+            form.querySelectorAll('input[name="servers"]:checked:not(:disabled)'),
+        )
             .map((input) => input.value);
     }
 

@@ -105,25 +105,55 @@ class Form(StatesGroup):
     edit_recommender = State()
 
 
-MAIN_MENU = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="👤 Мой профиль"),
-            KeyboardButton(text="🔐 Мои серверы"),
+def server_form_url(
+    *,
+    server_username: str | None = None,
+    existing_services: Sequence[str] = (),
+    requested_server: str | None = None,
+) -> str:
+    query: dict[str, str] = {}
+    if requested_server:
+        query["server"] = requested_server
+    if server_username:
+        query["username"] = server_username
+    if existing_services:
+        query["existing"] = ",".join(dict.fromkeys(existing_services))
+    return SERVER_FORM_URL if not query else f"{SERVER_FORM_URL}?{urlencode(query)}"
+
+
+def main_menu(
+    *,
+    server_username: str | None = None,
+    existing_services: Sequence[str] = (),
+) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="👤 Мой профиль"),
+                KeyboardButton(text="🔐 Мои серверы"),
+            ],
+            [
+                KeyboardButton(text="🖥 Все серверы лаборатории"),
+                KeyboardButton(
+                    text="➕ Получить доступ",
+                    web_app=WebAppInfo(
+                        url=server_form_url(
+                            server_username=server_username,
+                            existing_services=existing_services,
+                        )
+                    ),
+                ),
+            ],
+            [
+                KeyboardButton(text="📚 Сайт и правила"),
+                KeyboardButton(text="📡 Статус серверов"),
+            ],
         ],
-        [
-            KeyboardButton(text="🖥 Все серверы лаборатории"),
-            KeyboardButton(
-                text="➕ Получить доступ", web_app=WebAppInfo(url=SERVER_FORM_URL)
-            ),
-        ],
-        [
-            KeyboardButton(text="📚 Сайт и правила"),
-            KeyboardButton(text="📡 Статус серверов"),
-        ],
-    ],
-    resize_keyboard=True,
-)
+        resize_keyboard=True,
+    )
+
+
+MAIN_MENU = main_menu()
 
 
 def profile_form_menu() -> ReplyKeyboardMarkup:
@@ -280,10 +310,19 @@ def server_dashboard_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
-def server_request_menu(host: str) -> ReplyKeyboardMarkup:
+def server_request_menu(
+    host: str,
+    *,
+    server_username: str | None = None,
+    existing_services: Sequence[str] = (),
+) -> ReplyKeyboardMarkup:
     if host not in {**SERVER_NAMES, **SERVICE_NAMES}:
         raise ValueError(f"unknown server: {host}")
-    url = f"{SERVER_FORM_URL}?{urlencode({'server': host})}"
+    url = server_form_url(
+        server_username=server_username,
+        existing_services=existing_services,
+        requested_server=host,
+    )
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -632,6 +671,50 @@ def build_router(
 ) -> Router:
     router = Router()
 
+    async def access_form_context(
+        telegram_user_id: int,
+    ) -> tuple[str | None, tuple[str, ...]]:
+        server_username, registered_services, access_hosts = await asyncio.gather(
+            asyncio.to_thread(
+                service.storage.server_username_for, telegram_user_id
+            ),
+            asyncio.to_thread(
+                service.storage.registry_services_for, telegram_user_id
+            ),
+            asyncio.to_thread(
+                service.storage.access_hosts_for, telegram_user_id
+            ),
+        )
+        existing_services = tuple(
+            dict.fromkeys(
+                (*registered_services, *access_hosts)
+            )
+        )
+        return server_username, existing_services
+
+    async def personalized_main_menu(
+        telegram_user_id: int,
+    ) -> ReplyKeyboardMarkup:
+        server_username, existing_services = await access_form_context(
+            telegram_user_id
+        )
+        return main_menu(
+            server_username=server_username,
+            existing_services=existing_services,
+        )
+
+    async def personalized_server_request_menu(
+        host: str, telegram_user_id: int
+    ) -> ReplyKeyboardMarkup:
+        server_username, existing_services = await access_form_context(
+            telegram_user_id
+        )
+        return server_request_menu(
+            host,
+            server_username=server_username,
+            existing_services=existing_services,
+        )
+
     async def answer_profile(message: Message, profile: Profile) -> None:
         registry, accesses = await asyncio.gather(
             asyncio.to_thread(
@@ -700,7 +783,8 @@ def build_router(
             service.storage.profile_for, message.from_user.id
         )
         await message.answer(
-            "Нашёл ваши данные в таблице и привязал их к Telegram-профилю."
+            "Нашёл ваши данные в таблице и привязал их к Telegram-профилю.",
+            reply_markup=await personalized_main_menu(message.from_user.id),
         )
         if profile is not None:
             await answer_profile(message, profile)
@@ -718,7 +802,11 @@ def build_router(
                 service.credentials_for, application.telegram_user_id
             )
         except ValidationError as error:
-            await bot.send_message(chat_id, str(error), reply_markup=MAIN_MENU)
+            await bot.send_message(
+                chat_id,
+                str(error),
+                reply_markup=await personalized_main_menu(user.id),
+            )
             return False
         except ProvisioningError:
             LOGGER.exception("Provisioning failed for Telegram user %s", user.id)
@@ -726,7 +814,7 @@ def build_router(
                 chat_id,
                 "Не удалось создать доступ. Проверьте «Мои серверы»: часть "
                 "ресурсов могла быть выдана до ошибки. Попробуйте ещё раз позже.",
-                reply_markup=MAIN_MENU,
+                reply_markup=await personalized_main_menu(user.id),
             )
             return False
         if created_accesses:
@@ -749,6 +837,11 @@ def build_router(
             protect_content=True,
             reply_markup=server_dashboard_keyboard(accesses, registered_services),
         )
+        await bot.send_message(
+            chat_id,
+            "Главное меню обновлено с учётом выданных доступов.",
+            reply_markup=await personalized_main_menu(user.id),
+        )
         return True
 
     @router.message(CommandStart())
@@ -760,7 +853,12 @@ def build_router(
                 "Для получения доступа напишите боту в личные сообщения."
             )
             return
-        await message.answer(onboarding_text(), reply_markup=MAIN_MENU)
+        menu = (
+            await personalized_main_menu(message.from_user.id)
+            if message.from_user is not None
+            else MAIN_MENU
+        )
+        await message.answer(onboarding_text(), reply_markup=menu)
         if message.from_user is not None:
             registry = await asyncio.to_thread(
                 service.storage.registry_match_for, message.from_user.id
@@ -826,7 +924,7 @@ def build_router(
                 await state.clear()
                 await message.answer(
                     "Профиль сохранён.",
-                    reply_markup=MAIN_MENU,
+                    reply_markup=await personalized_main_menu(message.from_user.id),
                 )
                 return
             if is_demo and state_data.get("demo_full_name"):
@@ -842,13 +940,17 @@ def build_router(
                 )
             if profile is None:
                 await message.answer(
-                    "Сначала заполните «Мой профиль».", reply_markup=MAIN_MENU
+                    "Сначала заполните «Мой профиль».",
+                    reply_markup=await personalized_main_menu(message.from_user.id),
                 )
                 return
             application = application_from_request(profile, submission)
             validate(application)
         except (WebAppPayloadError, ValidationError) as error:
-            await message.answer(str(error), reply_markup=MAIN_MENU)
+            await message.answer(
+                str(error),
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
             return
         if is_demo:
             accesses = demo_accesses(
@@ -860,13 +962,16 @@ def build_router(
                 + server_dashboard_text(accesses)
                 + "\n\nПароль <code>DEMO-PASSWORD</code> ненастоящий.",
                 protect_content=True,
-                reply_markup=MAIN_MENU,
+                reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
         try:
             await asyncio.to_thread(service.validate_request, application)
         except ValidationError as error:
-            await message.answer(str(error), reply_markup=MAIN_MENU)
+            await message.answer(
+                str(error),
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
             return
         known_user = await asyncio.to_thread(
             service.storage.application_for, message.from_user.id
@@ -894,7 +999,7 @@ def build_router(
         if not admin_user_ids:
             await message.answer(
                 "Новые заявки временно не принимаются: администратор не настроен.",
-                reply_markup=MAIN_MENU,
+                reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
         request_id = secrets.token_urlsafe(8)
@@ -918,7 +1023,7 @@ def build_router(
         await message.answer(
             "Заявка отправлена администратору. Больше ничего заполнять не нужно: "
             "после одобрения бот сам пришлёт доступы.",
-            reply_markup=MAIN_MENU,
+            reply_markup=await personalized_main_menu(message.from_user.id),
         )
 
     @router.callback_query(
@@ -995,7 +1100,12 @@ def build_router(
     @router.message(F.text == "Отмена")
     async def cancel_message(message: Message, state: FSMContext) -> None:
         await state.clear()
-        await message.answer("Анкета отменена.", reply_markup=MAIN_MENU)
+        menu = (
+            await personalized_main_menu(message.from_user.id)
+            if message.from_user is not None
+            else MAIN_MENU
+        )
+        await message.answer("Анкета отменена.", reply_markup=menu)
 
     @router.callback_query(F.data.startswith("form:cancel:"))
     async def cancel_callback(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1097,7 +1207,9 @@ def build_router(
         await bot.send_message(
             application.telegram_user_id,
             "Заявка на серверный доступ отклонена. Уточните детали у рекомендателя.",
-            reply_markup=MAIN_MENU,
+            reply_markup=await personalized_main_menu(
+                application.telegram_user_id
+            ),
         )
         await callback.answer("Заявка отклонена")
         if callback.message:
@@ -1404,7 +1516,9 @@ def build_router(
                 "После выдачи доступны команды: <code>mlsub run</code>, "
                 "<code>mlsub list</code>, <code>mlsub status</code>, "
                 "<code>mlsub logs</code> и <code>mlsub kill</code>.",
-                reply_markup=server_request_menu("mlsub"),
+                reply_markup=await personalized_server_request_menu(
+                    "mlsub", callback.from_user.id
+                ),
             )
 
     @router.callback_query(F.data == "catalog:ascend:soon")
@@ -1419,7 +1533,11 @@ def build_router(
         await state.clear()
         await message.answer(
             f'Правила и инструкции: <a href="{RULES_URL}">{RULES_URL}</a>',
-            reply_markup=MAIN_MENU,
+            reply_markup=(
+                await personalized_main_menu(message.from_user.id)
+                if message.from_user is not None
+                else MAIN_MENU
+            ),
         )
 
     @router.callback_query(F.data.startswith("servers:add:"))
@@ -1432,13 +1550,20 @@ def build_router(
         await callback.answer()
         await callback.message.answer(
             f"Откройте короткую заявку на {ALL_SERVICE_NAMES[host]}.",
-            reply_markup=server_request_menu(host),
+            reply_markup=await personalized_server_request_menu(
+                host, callback.from_user.id
+            ),
         )
 
     @router.message(F.text.in_({"Главное меню", "Открыть форму доступа"}))
-    async def main_menu(message: Message, state: FSMContext) -> None:
+    async def show_main_menu(message: Message, state: FSMContext) -> None:
         await state.clear()
-        await message.answer("Главное меню обновлено.", reply_markup=MAIN_MENU)
+        menu = (
+            await personalized_main_menu(message.from_user.id)
+            if message.from_user is not None
+            else MAIN_MENU
+        )
+        await message.answer("Главное меню обновлено.", reply_markup=menu)
 
     @router.message(Form.edit_full_name, F.text)
     async def save_full_name(message: Message, state: FSMContext) -> None:
