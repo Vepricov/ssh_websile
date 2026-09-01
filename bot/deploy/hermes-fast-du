@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Parallel top-level disk usage scanner with durable output."""
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("root", help="directory whose immediate children are measured")
+    parser.add_argument("prefix", help="output prefix; writes .tsv, .progress.tsv, .err")
+    parser.add_argument("--workers", type=int, default=4)
+    return parser.parse_args()
+
+
+def measure(path: str) -> tuple[int | None, str, str]:
+    completed = subprocess.run(
+        ["du", "-x", "-B1", "-s", "--", path],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    size = None
+    if completed.stdout:
+        try:
+            size = int(completed.stdout.split("\t", 1)[0])
+        except ValueError:
+            pass
+    error = completed.stderr.strip()
+    if completed.returncode and not error:
+        error = f"du exited {completed.returncode}"
+    return size, path, error
+
+
+def durable_replace(temp_path: Path, final_path: Path) -> None:
+    os.replace(temp_path, final_path)
+    directory = os.open(final_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def main() -> int:
+    arguments = parse_args()
+    root = os.path.abspath(arguments.root)
+    workers = max(1, min(arguments.workers, 8))
+    prefix = Path(arguments.prefix)
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    progress_path = Path(str(prefix) + ".progress.tsv")
+    error_path = Path(str(prefix) + ".err")
+    final_path = Path(str(prefix) + ".tsv")
+    temp_path = Path(str(prefix) + ".tsv.tmp")
+
+    try:
+        entries = sorted(
+            (
+                entry.path
+                for entry in os.scandir(root)
+                if entry.is_dir(follow_symlinks=False)
+            ),
+            key=str.casefold,
+        )
+    except OSError as error:
+        print(f"cannot scan {root}: {error}", file=sys.stderr)
+        return 2
+
+    started = time.monotonic()
+    results: list[tuple[int, str]] = []
+    errors: list[str] = []
+    with progress_path.open("w", buffering=1) as progress:
+        progress.write("elapsed_seconds\tcompleted\ttotal\tbytes\tpath\n")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(measure, path): path for path in entries}
+            for completed_count, future in enumerate(
+                concurrent.futures.as_completed(futures), start=1
+            ):
+                size, path, error = future.result()
+                elapsed = time.monotonic() - started
+                size_text = ""
+                if size is not None:
+                    results.append((size, path))
+                    size_text = str(size)
+                if error:
+                    errors.append(f"{path}: {error}")
+                progress.write(
+                    f"{elapsed:.3f}\t{completed_count}\t{len(entries)}\t"
+                    f"{size_text}\t{path}\n"
+                )
+
+    try:
+        root_blocks = os.lstat(root).st_blocks * 512
+    except OSError:
+        root_blocks = 0
+    results.append((sum(size for size, _ in results) + root_blocks, root))
+
+    with temp_path.open("x") as output:
+        for size, path in sorted(results, key=lambda row: row[0], reverse=True):
+            output.write(f"{size}\t{path}\n")
+        output.flush()
+        os.fsync(output.fileno())
+    durable_replace(temp_path, final_path)
+    error_path.write_text(("\n".join(errors) + "\n") if errors else "")
+    return 0 if not errors else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

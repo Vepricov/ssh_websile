@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( $# != 0 )); then
+    echo "usage: hermes-home-scan" >&2
+    exit 2
+fi
+
+umask 022
+outdir=/var/lib/hermes-home-scan
+lockfile=/run/hermes-home-scan.lock
+stamp=$(date -u +%Y%m%d-%H%M%S)
+prefix="$outdir/home-$stamp"
+
+install -d -o root -g root -m 0755 "$outdir"
+exec 9>"$lockfile"
+if ! flock -n 9; then
+    echo "another hermes-home-scan is already running" >&2
+    exit 3
+fi
+
+/usr/local/sbin/hermes-fast-du /home "$prefix" --workers 4
+
+python3 - "$prefix.tsv" "$outdir/latest.tsv" <<'PY'
+import os
+import shutil
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+with source.open("rb") as reader, temporary.open("xb") as writer:
+    shutil.copyfileobj(reader, writer)
+    writer.flush()
+    os.fsync(writer.fileno())
+os.chmod(temporary, 0o644)
+os.replace(temporary, destination)
+directory = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PY
+
+ln -sfn "$(basename "$prefix.progress.tsv")" "$outdir/latest.progress.tsv"
+ln -sfn "$(basename "$prefix.err")" "$outdir/latest.err"
+
+# Keep the newest 14 complete snapshots.
+python3 - "$outdir" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+snapshots = sorted(
+    root.glob("home-*.tsv"), key=lambda path: path.stat().st_mtime, reverse=True
+)
+snapshots = [path for path in snapshots if not path.name.endswith(".progress.tsv")]
+for snapshot in snapshots[14:]:
+    stem = str(snapshot)[:-4]
+    for suffix in (".tsv", ".progress.tsv", ".err"):
+        try:
+            Path(stem + suffix).unlink()
+        except FileNotFoundError:
+            pass
+PY

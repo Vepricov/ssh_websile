@@ -99,7 +99,14 @@ Disk inspection uses `/usr/local/sbin/hermes-disk-report`. The SSH account may
 run only its validated `summary`, `top-home`, and `cleanup-root` modes through
 `sudo`; arbitrary paths and shell commands are not accepted. Install
 `deploy/hermes-disk-cleanup.conf` into `/etc/tmpfiles.d/` for the optional
-14-day `/tmp` cleanup policy.
+14-day `/tmp` cleanup policy. ZFS capacity includes child datasets instead of
+using the misleading parent-dataset `df` size. On the ext4 BrainLab `/home`,
+`top-home` reads the completed cache produced by `hermes-home-scan`; install and
+enable `deploy/hermes-fast-du`, `deploy/hermes-home-scan`,
+`deploy/hermes-home-scan.service`, and `deploy/hermes-home-scan.timer` to refresh
+that cache once per day with idle I/O priority. The scanner writes a root-owned
+regular `latest.tsv` atomically; the report helper rejects stale, oversized, or
+non-root-owned cache files.
 
 ## User documentation
 

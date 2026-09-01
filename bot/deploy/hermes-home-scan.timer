@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh cached /home usage once a day
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=30min
+AccuracySec=5min
+Persistent=true
+Unit=hermes-home-scan.service
+
+[Install]
+WantedBy=timers.target

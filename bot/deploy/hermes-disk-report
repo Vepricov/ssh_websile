@@ -5,13 +5,36 @@ import json
 import fcntl
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import time
 
 
 def fail(message: str, code: int = 2) -> None:
     print(message, file=sys.stderr)
     raise SystemExit(code)
+
+
+def zfs_filesystem_usage(source: str) -> dict[str, int] | None:
+    try:
+        completed = run(
+            ["zfs", "list", "-H", "-p", "-o", "used,avail", source],
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    fields = completed.stdout.split()
+    if completed.returncode != 0 or len(fields) != 2 or not all(
+        value.isdigit() for value in fields
+    ):
+        return None
+    used, available = (int(value) for value in fields)
+    return {
+        "used_bytes": used,
+        "available_bytes": available,
+        "total_bytes": used + available,
+    }
 
 
 def filesystem_summary() -> None:
@@ -32,6 +55,16 @@ def filesystem_summary() -> None:
                 "free_inodes": stats.f_favail,
             }
         )
+        try:
+            mount = run(["findmnt", "-n", "-o", "FSTYPE,SOURCE", "-T", path])
+        except (OSError, subprocess.TimeoutExpired):
+            mount = None
+        if mount is not None and mount.returncode == 0:
+            fields = mount.stdout.split()
+            if len(fields) >= 2 and fields[0] == "zfs":
+                zfs_usage = zfs_filesystem_usage(fields[1])
+                if zfs_usage is not None:
+                    row.update(zfs_usage)
     print(json.dumps({"filesystems": list(filesystems.values())}))
 
 
@@ -86,7 +119,7 @@ def top_home_quota() -> list[dict[str, object]] | None:
         completed = run(["repquota", "-up", "/home"], timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    if completed.returncode not in (0, 1):
+    if completed.returncode != 0:
         return None
     directories = []
     for line in completed.stdout.splitlines():
@@ -102,6 +135,59 @@ def top_home_quota() -> list[dict[str, object]] | None:
             directories.append(
                 {"path": path, "size_bytes": int(blocks) * 1024}
             )
+    return directories
+
+
+def top_home_cache(
+    path: str = "/var/lib/hermes-home-scan/latest.tsv",
+    *,
+    now: int | None = None,
+    expected_uid: int = 0,
+    max_age_seconds: int = 48 * 3600,
+    max_bytes: int = 1024 * 1024,
+) -> list[dict[str, object]] | None:
+    directories = []
+    try:
+        current_time = int(time.time()) if now is None else now
+        parent = os.stat(os.path.dirname(path), follow_symlinks=False)
+        metadata = os.lstat(path)
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != expected_uid
+            or parent.st_mode & 0o022
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != expected_uid
+            or metadata.st_mode & 0o022
+            or metadata.st_size > max_bytes
+            or current_time - int(metadata.st_mtime) > max_age_seconds
+            or int(metadata.st_mtime) - current_time > 300
+        ):
+            return None
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+        )
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
+            os.close(descriptor)
+            return None
+        with os.fdopen(descriptor, encoding="utf-8") as cache:
+            for line_number, line in enumerate(cache, start=1):
+                if line_number > 10000:
+                    return None
+                size, separator, home_path = line.rstrip("\n").partition("\t")
+                if (
+                    separator
+                    and size.isdigit()
+                    and home_path.startswith("/home/")
+                    and home_path.count("/") == 2
+                ):
+                    directories.append(
+                        {"path": home_path, "size_bytes": int(size)}
+                    )
+    except (OSError, UnicodeError, ValueError):
+        return None
+    directories.sort(key=lambda item: int(item["size_bytes"]), reverse=True)
     return directories
 
 
@@ -122,8 +208,14 @@ def top_home() -> None:
             source_name = "zfs"
     if directories is None:
         directories = top_home_quota()
-        if directories is not None:
+        if directories:
             source_name = "quota"
+        else:
+            directories = None
+    if directories is None:
+        directories = top_home_cache()
+        if directories is not None:
+            source_name = "cache"
     if directories is None:
         directories = []
     directories.sort(key=lambda item: int(item["size_bytes"]), reverse=True)

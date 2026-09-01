@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh cached /home usage for BRAIn Lab monitoring
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hermes-home-scan
+Nice=19
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+TimeoutStartSec=45min
