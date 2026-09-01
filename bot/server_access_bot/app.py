@@ -1689,6 +1689,7 @@ async def run(settings: Settings) -> None:
                 monitor,
                 admin_user_ids=settings.admin_user_ids,
                 process_controller=process_controller,
+                registry_lookup=sheets.find_registry_user_by_server_username,
             )
         )
     if settings.disk_monitor_enabled:
@@ -1707,6 +1708,7 @@ async def run(settings: Settings) -> None:
                 disk_monitor,
                 disk_scanner,
                 interval_seconds=settings.disk_monitor_interval_seconds,
+                admin_user_ids=settings.admin_user_ids,
             )
         )
     await bot.set_my_commands(

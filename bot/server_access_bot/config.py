@@ -22,7 +22,7 @@ class Settings:
     gpu_idle_minimum_samples: int = 6
     gpu_idle_notification_cooldown_seconds: int = 43200
     disk_monitor_enabled: bool = True
-    disk_monitor_interval_seconds: int = 1800
+    disk_monitor_interval_seconds: int = 300
     disk_warning_free_percent: int = 15
     disk_critical_free_percent: int = 5
     disk_notification_cooldown_seconds: int = 21600
@@ -88,7 +88,7 @@ class Settings:
             ).lower()
             in {"1", "true", "yes", "on"},
             disk_monitor_interval_seconds=int(
-                os.environ.get("DISK_MONITOR_INTERVAL_SECONDS", "1800")
+                os.environ.get("DISK_MONITOR_INTERVAL_SECONDS", "300")
             ),
             disk_warning_free_percent=int(
                 os.environ.get("DISK_WARNING_FREE_PERCENT", "15")

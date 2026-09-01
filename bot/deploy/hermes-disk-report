@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 import json
+import fcntl
 import os
+import shutil
 import subprocess
 import sys
 
@@ -31,42 +33,201 @@ def filesystem_summary() -> None:
     print(json.dumps({"filesystems": list(filesystems.values())}))
 
 
-def top_home() -> None:
-    if not os.path.isdir("/home"):
-        print('{"directories": []}')
-        return
-    paths = [entry.path for entry in os.scandir("/home") if entry.is_dir(follow_symlinks=False)]
-    if not paths:
-        print('{"directories": []}')
-        return
+def run(command: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def top_home_zfs(source: str) -> list[dict[str, object]] | None:
     try:
-        completed = subprocess.run(
-            ["du", "-x", "-B1", "-s", "--", *paths],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
+        completed = run(
+            [
+                "zfs",
+                "list",
+                "-H",
+                "-p",
+                "-r",
+                "-d",
+                "1",
+                "-o",
+                "mountpoint,used",
+                source,
+            ],
+            timeout=15,
         )
-    except subprocess.TimeoutExpired:
-        fail("du timed out")
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
     directories = []
     for line in completed.stdout.splitlines():
-        size, separator, path = line.partition("\t")
-        if separator and size.isdigit() and path in paths:
+        path, separator, size = line.partition("\t")
+        if (
+            separator
+            and path.startswith("/home/")
+            and path.count("/") == 2
+            and size.isdigit()
+        ):
             directories.append({"path": path, "size_bytes": int(size)})
+    return directories
+
+
+def top_home_quota() -> list[dict[str, object]] | None:
+    if shutil.which("repquota") is None:
+        return None
+    try:
+        completed = run(["repquota", "-up", "/home"], timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode not in (0, 1):
+        return None
+    directories = []
+    for line in completed.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 4 or fields[1] not in {"--", "+-", "-+", "++"}:
+            continue
+        username = fields[0].lstrip("#")
+        blocks = fields[2]
+        if not username or not blocks.isdigit():
+            continue
+        path = f"/home/{username}"
+        if os.path.isdir(path):
+            directories.append(
+                {"path": path, "size_bytes": int(blocks) * 1024}
+            )
+    return directories
+
+
+def top_home() -> None:
+    if not os.path.isdir("/home"):
+        print('{"directories": [], "source": "missing"}')
+        return
+    try:
+        mount = run(["findmnt", "-n", "-o", "FSTYPE,SOURCE", "-T", "/home"])
+    except (OSError, subprocess.TimeoutExpired):
+        mount = None
+    directories = None
+    source_name = "unavailable"
+    if mount is not None and mount.returncode == 0:
+        fields = mount.stdout.split()
+        if len(fields) >= 2 and fields[0] == "zfs":
+            directories = top_home_zfs(fields[1])
+            source_name = "zfs"
+    if directories is None:
+        directories = top_home_quota()
+        if directories is not None:
+            source_name = "quota"
+    if directories is None:
+        directories = []
     directories.sort(key=lambda item: int(item["size_bytes"]), reverse=True)
-    print(json.dumps({"directories": directories[:5]}))
+    print(json.dumps({"directories": directories[:5], "source": source_name}))
+
+
+def available_bytes(path: str) -> int:
+    stats = os.statvfs(path)
+    return stats.f_bavail * stats.f_frsize
+
+
+def cleanup_step(name: str, command: list[str], timeout: int) -> dict[str, object]:
+    before = available_bytes("/")
+    try:
+        completed = run(command, timeout=timeout)
+        status = "ok" if completed.returncode == 0 else "error"
+    except subprocess.TimeoutExpired:
+        status = "timeout"
+    except OSError:
+        status = "error"
+    after = available_bytes("/")
+    return {
+        "name": name,
+        "freed_bytes": max(0, after - before),
+        "status": status,
+    }
+
+
+def cleanup_root(lock_path: str = "/run/hermes-disk-cleanup.lock") -> None:
+    with open(lock_path, "w", encoding="utf-8") as lock:
+        before = available_bytes("/")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(
+                json.dumps(
+                    {
+                        "before_available_bytes": before,
+                        "after_available_bytes": before,
+                        "actions": [
+                            {
+                                "name": "Безопасная очистка",
+                                "freed_bytes": 0,
+                                "status": "busy",
+                            }
+                        ],
+                    }
+                )
+            )
+            return
+        actions = []
+        if shutil.which("journalctl"):
+            actions.append(
+                cleanup_step(
+                    "Ротация системных журналов",
+                    ["journalctl", "--rotate"],
+                    10,
+                )
+            )
+            actions.append(
+                cleanup_step(
+                    "Архивные системные журналы",
+                    ["journalctl", "--vacuum-size=200M"],
+                    20,
+                )
+            )
+        if shutil.which("apt-get"):
+            actions.append(
+                cleanup_step("Кеш apt", ["apt-get", "clean"], 30)
+            )
+        policy = "/etc/tmpfiles.d/hermes-disk-cleanup.conf"
+        if shutil.which("systemd-tmpfiles") and os.path.isfile(policy):
+            actions.append(
+                cleanup_step(
+                    "Временные файлы старше 14 дней",
+                    ["systemd-tmpfiles", "--clean", policy],
+                    30,
+                )
+            )
+        after = available_bytes("/")
+        print(
+            json.dumps(
+                {
+                    "before_available_bytes": before,
+                    "after_available_bytes": after,
+                    "actions": actions,
+                }
+            )
+        )
 
 
 def main() -> None:
     if os.geteuid() != 0:
         fail("must run as root")
-    if len(sys.argv) != 2 or sys.argv[1] not in {"summary", "top-home"}:
-        fail("usage: hermes-disk-report summary|top-home", 64)
+    if len(sys.argv) != 2 or sys.argv[1] not in {
+        "summary",
+        "top-home",
+        "cleanup-root",
+    }:
+        fail("usage: hermes-disk-report summary|top-home|cleanup-root", 64)
     if sys.argv[1] == "summary":
         filesystem_summary()
-    else:
+    elif sys.argv[1] == "top-home":
         top_home()
+    else:
+        cleanup_root()
 
 
 if __name__ == "__main__":

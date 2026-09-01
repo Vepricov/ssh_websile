@@ -3,6 +3,8 @@ import json
 
 from server_access_bot.disk_monitoring import (
     DiskAlert,
+    DiskCleanupAction,
+    DiskCleanupResult,
     DiskDirectoryUsage,
     DiskFilesystemStatus,
     DiskHostStatus,
@@ -67,9 +69,33 @@ def test_disk_scanner_parses_filesystems_and_marks_unreachable_host() -> None:
     assert statuses[1].reachable is False
 
 
+def test_disk_scanner_parses_allowlisted_cleanup_report() -> None:
+    report = json.dumps(
+        {
+            "before_available_bytes": 10,
+            "after_available_bytes": 18,
+            "actions": [
+                {"name": "Кеш apt", "freed_bytes": 8, "status": "ok"}
+            ],
+        }
+    )
+
+    def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        assert host == "brain_lab"
+        assert command == DiskScanner.CLEANUP_ROOT_QUERY
+        return 0, report
+
+    result = DiskScanner(("brain_lab",), runner=runner).cleanup_root("brain_lab")
+
+    assert result == DiskCleanupResult(
+        before_available_bytes=10,
+        after_available_bytes=18,
+        actions=(DiskCleanupAction("Кеш apt", 8),),
+    )
+
+
 def test_disk_monitor_alerts_on_warning_and_escalates_to_critical(tmp_path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
-    storage.bind_server_chat("brain_lab", -100123, None, 101)
 
     class FakeScanner:
         used_bytes = 800
@@ -113,9 +139,8 @@ def test_disk_monitor_alerts_on_warning_and_escalates_to_critical(tmp_path) -> N
     assert critical[0].level == "critical"
 
 
-def test_disk_alert_is_sent_to_bound_topic_with_growth_and_top_home(tmp_path) -> None:
+def test_disk_alert_is_sent_to_admin_with_growth_top_and_cleanup(tmp_path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
-    storage.bind_server_chat("brain_lab", -100123, 17, 101)
     gib = 1024**3
     alert = DiskAlert(
         level="warning",
@@ -143,6 +168,14 @@ def test_disk_alert_is_sent_to_bound_topic_with_growth_and_top_home(tmp_path) ->
                 DiskDirectoryUsage("/home/bob", 250 * gib),
             )
 
+        def cleanup_root(self, host):
+            assert host == "brain_lab"
+            return DiskCleanupResult(
+                before_available_bytes=10 * gib,
+                after_available_bytes=18 * gib,
+                actions=(DiskCleanupAction("Системные журналы", 8 * gib),),
+            )
+
     class FakeBot:
         def __init__(self):
             self.messages = []
@@ -152,12 +185,18 @@ def test_disk_alert_is_sent_to_bound_topic_with_growth_and_top_home(tmp_path) ->
 
     bot = FakeBot()
     delivered = asyncio.run(
-        deliver_disk_alerts(bot, storage, FakeScanner(), (alert,))
+        deliver_disk_alerts(
+            bot,
+            storage,
+            FakeScanner(),
+            (alert,),
+            admin_user_ids=frozenset({999}),
+        )
     )
 
     assert delivered == ("brain_lab",)
-    assert bot.messages[0][0] == -100123
-    assert bot.messages[0][2]["message_thread_id"] == 17
+    assert bot.messages[0][0] == 999
+    assert "message_thread_id" not in bot.messages[0][2]
     text = bot.messages[0][1]
     assert "Новый сервер (BrainLab)" in text
     assert "/ и /home" in text
@@ -165,6 +204,9 @@ def test_disk_alert_is_sent_to_bound_topic_with_growth_and_top_home(tmp_path) ->
     assert "С прошлого замера: +12.0 GB" in text
     assert "За 24 часа: +85.0 GB" in text
     assert "<code>/home/alice</code> · 400.0 GB" in text
+    assert "До очистки: 10.0 GB" in text
+    assert "После очистки: <b>18.0 GB</b>" in text
+    assert "Системные журналы: −8.0 GB" in text
 
 
 def test_disk_status_lists_free_space_and_unreachable_servers() -> None:

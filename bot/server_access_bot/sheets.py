@@ -132,6 +132,34 @@ def registry_match_from_sheet_values(
     )
 
 
+def registry_match_by_server_username_from_sheet_values(
+    rows: list[list[str]], server_username: str
+) -> RegistryMatch | None:
+    if not rows or tuple(rows[0][:8]) != FORM_HEADERS:
+        raise RuntimeError("Google Sheet form headers changed")
+    normalized_server_username = server_username.strip().lstrip("@").casefold()
+    if not SERVER_USERNAME_RE.fullmatch(normalized_server_username):
+        return None
+    telegram_usernames = {
+        normalized
+        for row in rows[1:]
+        if _cell(row, 2).lstrip("@").casefold() == normalized_server_username
+        and (normalized := normalize_telegram_username(_cell(row, 5)))
+    }
+    if not telegram_usernames:
+        return None
+    if len(telegram_usernames) != 1:
+        raise RegistryAmbiguousError(
+            "В таблице найдено несколько Telegram-ников для Unix username."
+        )
+    trusted_id_column = len(rows[0]) > 8 and rows[0][8] == BOT_HEADERS[0]
+    return registry_match_from_rows(
+        rows[1:],
+        next(iter(telegram_usernames)),
+        trust_telegram_user_id=trusted_id_column,
+    )
+
+
 def registry_claim_plan_from_sheet_values(
     rows: list[list[str]],
     telegram_username: str,
@@ -231,6 +259,24 @@ class GoogleSheetsRepository:
         )
         rows = response.get("values", [])
         return registry_match_from_sheet_values(rows, telegram_username)
+
+    def find_registry_user_by_server_username(
+        self, server_username: str
+    ) -> RegistryMatch | None:
+        title = self._sheet_title().replace("'", "''")
+        response = (
+            self.service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"'{title}'!A:I",
+            )
+            .execute()
+        )
+        rows = response.get("values", [])
+        return registry_match_by_server_username_from_sheet_values(
+            rows, server_username
+        )
 
     def claim_registry_user_id(
         self,

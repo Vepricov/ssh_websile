@@ -15,15 +15,16 @@ from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from .domain import GpuIdleCandidate, GpuIdleIncident, GpuProcessAction
+from .domain import GpuIdleCandidate, GpuIdleIncident, GpuProcessAction, RegistryMatch
 from .process_control import (
     PROCESS_ACTION_NEVER_EXPIRES_AT,
     GpuProcessController,
     ProcessControlError,
 )
-from .storage import Storage
+from .storage import RegistryAlreadyClaimedError, Storage
 
 Runner = Callable[[str, tuple[str, ...]], tuple[int, str]]
+RegistryLookup = Callable[[str], RegistryMatch | None]
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 LOGGER = logging.getLogger(__name__)
 MOSCOW_TIMEZONE = ZoneInfo("Europe/Moscow")
@@ -431,6 +432,7 @@ def format_admin_idle_notification(
     incidents: Sequence[GpuIdleIncident],
     *,
     delivery_failed: bool = False,
+    telegram_username: str | None = None,
     policy: GpuIdlePolicy = GpuIdlePolicy(),
 ) -> str:
     username = html.escape(incidents[0].server_username)
@@ -442,6 +444,11 @@ def format_admin_idle_notification(
     lines = [
         "⚠️ <b>Не удалось уведомить владельца GPU-процесса</b>",
         f"Unix username: <code>{username}</code>",
+        *(
+            [f"Telegram: @{html.escape(telegram_username.lstrip('@'))}"]
+            if telegram_username
+            else []
+        ),
         f"Причина: {reason}.",
         "",
         "<b>Кому написать</b>",
@@ -479,6 +486,7 @@ async def deliver_gpu_idle_incidents(
     now: int,
     policy: GpuIdlePolicy = GpuIdlePolicy(),
     process_controller: GpuProcessController | None = None,
+    registry_lookup: RegistryLookup | None = None,
 ) -> tuple[str, ...]:
     grouped: dict[str, list[GpuIdleIncident]] = defaultdict(list)
     for incident in incidents:
@@ -488,6 +496,30 @@ async def deliver_gpu_idle_incidents(
         telegram_user_id = await asyncio.to_thread(
             storage.telegram_user_id_for_server_username, username
         )
+        owner_telegram_username = None
+        if telegram_user_id is None and registry_lookup is not None:
+            try:
+                registry_match = await asyncio.to_thread(registry_lookup, username)
+                if registry_match is not None:
+                    owner_telegram_username = registry_match.telegram_username
+                    if registry_match.telegram_user_id is not None:
+                        await asyncio.to_thread(
+                            storage.save_registry_match,
+                            registry_match.telegram_user_id,
+                            registry_match.telegram_username,
+                            registry_match,
+                        )
+                        telegram_user_id = registry_match.telegram_user_id
+            except RegistryAlreadyClaimedError:
+                LOGGER.warning(
+                    "Registry owner for Unix username %s is already claimed",
+                    username,
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Could not resolve Unix username %s through registry",
+                    username,
+                )
         delivery_failed = False
         delivered = False
         if telegram_user_id is not None:
@@ -556,6 +588,7 @@ async def deliver_gpu_idle_incidents(
             admin_text = format_admin_idle_notification(
                 user_incidents,
                 delivery_failed=delivery_failed,
+                telegram_username=owner_telegram_username,
                 policy=policy,
             )
             for admin_user_id in admin_user_ids:
@@ -583,6 +616,7 @@ async def run_gpu_idle_monitor(
     *,
     admin_user_ids: frozenset[int],
     process_controller: GpuProcessController | None = None,
+    registry_lookup: RegistryLookup | None = None,
 ) -> None:
     while True:
         started_at = time.monotonic()
@@ -598,6 +632,7 @@ async def run_gpu_idle_monitor(
                     now=now,
                     policy=monitor.policy,
                     process_controller=process_controller,
+                    registry_lookup=registry_lookup,
                 )
         except asyncio.CancelledError:
             raise

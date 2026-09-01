@@ -54,11 +54,13 @@ SQLite, and mirrors successful applications to the existing Google Sheet.
     signal.
 14. `Статус серверов` runs a fresh parallel `nvidia-smi` snapshot. It shows
     every GPU's utilization and VRAM usage and marks unreachable SSH hosts.
-15. A disk monitor checks `/`, `/home`, and inode availability every 30 minutes.
-    A bound server chat receives a warning below 15% free and a critical alert
-    below 5% free. Alerts include growth since the previous sample and over the
-    last 24 hours. A root-owned helper calculates the five largest immediate
-    directories in `/home` only when an alert is actually sent.
+15. A disk monitor checks `/`, `/home`, and inode availability every five minutes.
+    Configured bot admins receive a private warning below 15% free and a critical
+    alert below 5% free. Alerts include growth since the previous sample and over
+    the last 24 hours. A root-owned helper reads the five largest users from ZFS
+    metadata or filesystem quotas without walking all files. For a low root
+    filesystem it performs only allowlisted system-cache cleanup and reports the
+    measured before/after result.
 
 ## H200 access order
 
@@ -88,13 +90,16 @@ configured bot admin:
 /bind_server yandex
 ```
 
-The binding stores both the Telegram chat ID and the current forum topic ID.
-`/unbind_server <host>` removes it. `/disk_status` requests a fresh disk-space
-snapshot without waiting for an alert.
+The binding stores both the Telegram chat ID and the current forum topic ID for
+future group delivery. Current automatic alerts go privately to configured bot
+admins. `/unbind_server <host>` removes a binding. `/disk_status` requests a
+fresh disk-space snapshot without waiting for an alert.
 
 Disk inspection uses `/usr/local/sbin/hermes-disk-report`. The SSH account may
-run only its validated `summary` and `top-home` modes through `sudo`; arbitrary
-paths and shell commands are not accepted.
+run only its validated `summary`, `top-home`, and `cleanup-root` modes through
+`sudo`; arbitrary paths and shell commands are not accepted. Install
+`deploy/hermes-disk-cleanup.conf` into `/etc/tmpfiles.d/` for the optional
+14-day `/tmp` cleanup policy.
 
 ## User documentation
 

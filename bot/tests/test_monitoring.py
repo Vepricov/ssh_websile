@@ -9,6 +9,7 @@ from server_access_bot.domain import (
     GpuIdleCandidate,
     GpuIdleIncident,
     ProcessIdentity,
+    RegistryMatch,
 )
 from server_access_bot.monitoring import (
     GpuFleetScanner,
@@ -255,7 +256,7 @@ def test_monitor_policy_defaults_are_loaded_from_environment(
     assert settings.gpu_idle_minimum_duration_seconds == 1800
     assert settings.gpu_idle_notification_cooldown_seconds == 43200
     assert settings.disk_monitor_enabled is True
-    assert settings.disk_monitor_interval_seconds == 1800
+    assert settings.disk_monitor_interval_seconds == 300
     assert settings.disk_warning_free_percent == 15
     assert settings.disk_critical_free_percent == 5
     assert settings.disk_notification_cooldown_seconds == 21600
@@ -305,6 +306,104 @@ def test_unmapped_server_username_is_reported_only_to_admin(tmp_path) -> None:
     assert "не менее 30 минут" in bot.messages[0][1]
     assert bot.messages[0][2]["protect_content"] is False
     assert "reply_markup" not in bot.messages[0][2]
+
+
+def test_unmapped_owner_contact_is_loaded_from_sheet_for_admin(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    incident = GpuIdleIncident(
+        key="yandex:GPU-aaaa:akzium",
+        host="yandex",
+        gpu_index=1,
+        server_username="akzium",
+        used_memory_mb=8192,
+        pids=(303,),
+        first_seen_at=0,
+        last_seen_at=1800,
+    )
+
+    class FakeBot:
+        def __init__(self) -> None:
+            self.messages = []
+
+        async def send_message(self, chat_id: int, text: str, **kwargs) -> None:
+            self.messages.append((chat_id, text, kwargs))
+
+    def registry_lookup(server_username: str) -> RegistryMatch:
+        assert server_username == "akzium"
+        return RegistryMatch(
+            telegram_username="postscripter",
+            full_name="Peter Badolya",
+            server_username="akzium",
+            access_term="бессрочно",
+            recommender="Bob Jones",
+            activity="experiments",
+            servers=("shkodnik_opt",),
+            source_row_count=1,
+            telegram_user_id=None,
+        )
+
+    bot = FakeBot()
+    asyncio.run(
+        deliver_gpu_idle_incidents(
+            bot,
+            storage,
+            (incident,),
+            admin_user_ids=frozenset({999}),
+            now=1800,
+            registry_lookup=registry_lookup,
+        )
+    )
+
+    assert [message[0] for message in bot.messages] == [999]
+    assert "Telegram: @postscripter" in bot.messages[0][1]
+    assert "Unix username: <code>akzium</code>" in bot.messages[0][1]
+
+
+def test_trusted_sheet_owner_is_linked_and_notified_directly(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    incident = GpuIdleIncident(
+        key="yandex:GPU-aaaa:akzium",
+        host="yandex",
+        gpu_index=1,
+        server_username="akzium",
+        used_memory_mb=8192,
+        pids=(303,),
+        first_seen_at=0,
+        last_seen_at=1800,
+    )
+    match = RegistryMatch(
+        telegram_username="postscripter",
+        full_name="Peter Badolya",
+        server_username="akzium",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="experiments",
+        servers=("shkodnik_opt",),
+        source_row_count=1,
+        telegram_user_id=4242,
+    )
+
+    class FakeBot:
+        def __init__(self) -> None:
+            self.messages = []
+
+        async def send_message(self, chat_id: int, text: str, **kwargs) -> None:
+            self.messages.append((chat_id, text, kwargs))
+
+    bot = FakeBot()
+    asyncio.run(
+        deliver_gpu_idle_incidents(
+            bot,
+            storage,
+            (incident,),
+            admin_user_ids=frozenset({999}),
+            now=1800,
+            registry_lookup=lambda username: match,
+        )
+    )
+
+    assert [message[0] for message in bot.messages] == [4242]
+    assert storage.telegram_user_id_for_server_username("akzium") == 4242
 
 
 def test_admin_notification_uses_natural_server_phrase(tmp_path) -> None:

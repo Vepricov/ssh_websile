@@ -9,6 +9,7 @@ from server_access_bot.sheets import (
     RegistryAmbiguousError,
     application_values,
     registry_claim_plan_from_sheet_values,
+    registry_match_by_server_username_from_sheet_values,
     registry_match_from_rows,
     registry_match_from_sheet_values,
 )
@@ -111,6 +112,41 @@ def test_registry_rows_for_same_identity_are_merged_by_server() -> None:
     assert match.server_username == "alice"
     assert match.access_term == "2027-01-01"
     assert match.servers == ("shkodnik_opt", "brain_lab", "vv_h200")
+
+
+def test_registry_owner_is_found_by_unix_username_across_all_servers() -> None:
+    rows = [
+        list(FORM_HEADERS) + [BOT_HEADERS[0]],
+        registry_row(
+            "Peter Badolya",
+            "akzium",
+            "@Postscripter",
+            "Старый (mipt)",
+            telegram_user_id="4242",
+        ),
+    ]
+
+    match = registry_match_by_server_username_from_sheet_values(rows, "AKZIUM")
+
+    assert match is not None
+    assert match.telegram_username == "postscripter"
+    assert match.telegram_user_id == 4242
+    assert match.server_username == "akzium"
+
+
+def test_registry_owner_without_bot_owned_id_stays_untrusted() -> None:
+    rows = [
+        list(FORM_HEADERS),
+        registry_row(
+            "Peter Badolya", "akzium", "@Postscripter", "Старый (mipt)"
+        ),
+    ]
+
+    match = registry_match_by_server_username_from_sheet_values(rows, "akzium")
+
+    assert match is not None
+    assert match.telegram_username == "postscripter"
+    assert match.telegram_user_id is None
 
 
 def test_registry_ignores_legacy_name_order_and_invalid_unix_name() -> None:

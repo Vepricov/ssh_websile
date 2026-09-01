@@ -43,6 +43,20 @@ class DiskDirectoryUsage:
 
 
 @dataclass(frozen=True)
+class DiskCleanupAction:
+    name: str
+    freed_bytes: int
+    status: str = "ok"
+
+
+@dataclass(frozen=True)
+class DiskCleanupResult:
+    before_available_bytes: int
+    after_available_bytes: int
+    actions: tuple[DiskCleanupAction, ...]
+
+
+@dataclass(frozen=True)
 class DiskAlert:
     level: str
     sample: DiskUsageSample
@@ -54,6 +68,7 @@ class DiskAlert:
 class DiskScanner:
     SUMMARY_QUERY = ("sudo", "-n", HELPER, "summary")
     TOP_HOME_QUERY = ("sudo", "-n", HELPER, "top-home")
+    CLEANUP_ROOT_QUERY = ("sudo", "-n", HELPER, "cleanup-root")
 
     def __init__(
         self,
@@ -65,6 +80,7 @@ class DiskScanner:
 
     @staticmethod
     def _run_ssh(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        timeout_seconds = 150 if command == DiskScanner.CLEANUP_ROOT_QUERY else 30
         completed = subprocess.run(
             [
                 "/usr/bin/ssh",
@@ -84,7 +100,7 @@ class DiskScanner:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout_seconds,
             check=False,
             env={
                 "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -148,6 +164,49 @@ class DiskScanner:
                 return ()
             directories.append(DiskDirectoryUsage(path, size))
         return tuple(directories)
+
+    def cleanup_root(self, host: str) -> DiskCleanupResult | None:
+        if host not in self.hosts:
+            return None
+        try:
+            return_code, output = self.runner(host, self.CLEANUP_ROOT_QUERY)
+        except (OSError, subprocess.SubprocessError, TimeoutError):
+            return None
+        if return_code != 0:
+            return None
+        try:
+            payload = json.loads(output)
+            before = payload["before_available_bytes"]
+            after = payload["after_available_bytes"]
+            rows = payload["actions"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return None
+        if (
+            type(before) is not int
+            or before < 0
+            or type(after) is not int
+            or after < 0
+            or not isinstance(rows, list)
+        ):
+            return None
+        actions = []
+        for row in rows:
+            if not isinstance(row, dict):
+                return None
+            name = row.get("name")
+            freed = row.get("freed_bytes")
+            status = row.get("status")
+            if (
+                not isinstance(name, str)
+                or not name
+                or len(name) > 80
+                or type(freed) is not int
+                or freed < 0
+                or status not in {"ok", "error", "timeout", "busy"}
+            ):
+                return None
+            actions.append(DiskCleanupAction(name, freed, status))
+        return DiskCleanupResult(before, after, tuple(actions))
 
     @staticmethod
     def _parse_summary(text: str) -> tuple[DiskFilesystemStatus, ...] | None:
@@ -246,8 +305,6 @@ class DiskMonitor:
                     level = "warning"
                 else:
                     level = "normal"
-                if self.storage.server_chat_binding_for(sample.host) is None:
-                    continue
                 if not self.storage.claim_disk_alert(
                     sample.host,
                     sample.filesystem_key,
@@ -285,6 +342,7 @@ def _format_bytes(value: int, *, signed: bool = False) -> str:
 def format_disk_alert(
     alerts: Sequence[DiskAlert],
     top_home: Sequence[DiskDirectoryUsage] = (),
+    cleanup: DiskCleanupResult | None = None,
 ) -> str:
     host = alerts[0].sample.host
     server_name = html.escape(PUBLIC_SERVER_NAMES.get(host, host))
@@ -334,6 +392,40 @@ def format_disk_alert(
             for item in top_home
         )
         sections.append("\n".join(top_lines))
+    elif any("/home" in alert.sample.paths for alert in alerts):
+        sections.append(
+            "<b>Top /home</b>\n"
+            "Быстрая quota-статистика пока недоступна или домашние каталоги пусты."
+        )
+    if cleanup is not None:
+        cleanup_lines = [
+            "<b>Безопасная очистка системного раздела</b>",
+            f"До очистки: {_format_bytes(cleanup.before_available_bytes)} свободно",
+        ]
+        cleanup_lines.extend(
+            f"{html.escape(action.name)}: −{_format_bytes(action.freed_bytes)}"
+            for action in cleanup.actions
+            if action.freed_bytes > 0
+        )
+        status_names = {
+            "error": "ошибка",
+            "timeout": "превышено время ожидания",
+            "busy": "другая очистка уже выполняется",
+        }
+        cleanup_lines.extend(
+            f"{html.escape(action.name)}: {status_names[action.status]}"
+            for action in cleanup.actions
+            if action.status != "ok"
+        )
+        cleanup_lines.append(
+            f"После очистки: <b>{_format_bytes(cleanup.after_available_bytes)}</b> "
+            "свободно"
+        )
+        cleanup_lines.append(
+            "Автоматически больше ничего не удаляю. Если места всё ещё мало, "
+            "нужна ручная проверка."
+        )
+        sections.append("\n".join(cleanup_lines))
     return "\n\n".join(sections)
 
 
@@ -365,22 +457,32 @@ async def deliver_disk_alerts(
     storage: Storage,
     scanner: DiskScanner,
     alerts: Sequence[DiskAlert],
+    *,
+    admin_user_ids: frozenset[int],
 ) -> tuple[str, ...]:
     grouped: dict[str, list[DiskAlert]] = {}
     for alert in alerts:
         grouped.setdefault(alert.sample.host, []).append(alert)
     delivered = []
     for host, host_alerts in grouped.items():
-        binding = await asyncio.to_thread(storage.server_chat_binding_for, host)
-        if binding is None:
-            continue
         top_home = await asyncio.to_thread(scanner.top_home, host)
-        await bot.send_message(
-            binding.chat_id,
-            format_disk_alert(host_alerts, top_home),
-            message_thread_id=binding.message_thread_id,
-        )
-        delivered.append(host)
+        cleanup = None
+        if any("/" in alert.sample.paths for alert in host_alerts):
+            cleanup = await asyncio.to_thread(scanner.cleanup_root, host)
+        text = format_disk_alert(host_alerts, top_home, cleanup)
+        host_delivered = False
+        for admin_user_id in admin_user_ids:
+            try:
+                await bot.send_message(admin_user_id, text)
+                host_delivered = True
+            except Exception:
+                LOGGER.exception(
+                    "Could not send disk alert for %s to admin %s",
+                    host,
+                    admin_user_id,
+                )
+        if host_delivered:
+            delivered.append(host)
     return tuple(delivered)
 
 
@@ -390,13 +492,20 @@ async def run_disk_monitor(
     scanner: DiskScanner,
     *,
     interval_seconds: int,
+    admin_user_ids: frozenset[int],
 ) -> None:
     while True:
         started = time.monotonic()
         try:
             alerts = await asyncio.to_thread(monitor.check, now=int(time.time()))
             if alerts:
-                await deliver_disk_alerts(bot, monitor.storage, scanner, alerts)
+                await deliver_disk_alerts(
+                    bot,
+                    monitor.storage,
+                    scanner,
+                    alerts,
+                    admin_user_ids=admin_user_ids,
+                )
         except Exception:
             LOGGER.exception("Disk monitor iteration failed")
         elapsed = time.monotonic() - started
