@@ -11,6 +11,16 @@ class ProvisioningError(RuntimeError):
 
 HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200", "mlsub"})
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+SSH_OPTIONS = (
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=10",
+    "-o",
+    "ControlMaster=no",
+    "-o",
+    "ControlPath=none",
+)
 
 
 class SshProvisioner:
@@ -28,10 +38,7 @@ class SshProvisioner:
         completed = self.run(
             [
                 "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
+                *SSH_OPTIONS,
                 host,
                 "getent",
                 "passwd",
@@ -61,10 +68,7 @@ class SshProvisioner:
         )
         command = [
             "ssh",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=10",
+            *SSH_OPTIONS,
             target_host,
             "sudo",
             "-n",

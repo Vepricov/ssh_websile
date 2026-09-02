@@ -3,6 +3,18 @@ import subprocess
 from server_access_bot.provisioning import SshProvisioner
 
 
+def test_username_check_disables_ssh_multiplexing() -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 2, "", "")
+
+    assert SshProvisioner(run=run).username_available("shkodnik_opt", "alice")
+    assert "ControlMaster=no" in calls[0]
+    assert "ControlPath=none" in calls[0]
+
+
 def test_provisioner_parses_root_helper_credentials() -> None:
     calls: list[list[str]] = []
 
@@ -26,6 +38,10 @@ def test_provisioner_parses_root_helper_credentials() -> None:
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=10",
+            "-o",
+            "ControlMaster=no",
+            "-o",
+            "ControlPath=none",
             "brain_lab",
             "sudo",
             "-n",
