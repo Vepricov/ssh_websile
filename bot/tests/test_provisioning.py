@@ -13,6 +13,7 @@ def test_username_check_disables_ssh_multiplexing() -> None:
     assert SshProvisioner(run=run).username_available("shkodnik_opt", "alice")
     assert "ControlMaster=no" in calls[0]
     assert "ControlPath=none" in calls[0]
+    assert "UpdateHostKeys=no" in calls[0]
 
 
 def test_provisioner_parses_root_helper_credentials() -> None:
@@ -42,6 +43,8 @@ def test_provisioner_parses_root_helper_credentials() -> None:
             "ControlMaster=no",
             "-o",
             "ControlPath=none",
+            "-o",
+            "UpdateHostKeys=no",
             "brain_lab",
             "sudo",
             "-n",

@@ -20,6 +20,8 @@ SSH_OPTIONS = (
     "ControlMaster=no",
     "-o",
     "ControlPath=none",
+    "-o",
+    "UpdateHostKeys=no",
 )
 
 
