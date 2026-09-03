@@ -5,7 +5,7 @@ import logging
 import secrets
 import time
 from collections.abc import Sequence
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -56,19 +56,25 @@ from .process_control import (
     signal_gpu_process_action,
 )
 from .provisioning import ProvisioningError, SshProvisioner
-from .service import AccessService, ValidationError, validate, validate_profile
+from .service import (
+    AccessService,
+    ValidationError,
+    validate,
+    validate_profile,
+)
 from .sheets import (
     GoogleSheetsRepository,
     RegistryAmbiguousError,
     normalize_telegram_username,
 )
-from .storage import RegistryAlreadyClaimedError, Storage
+from .storage import PendingRequestExistsError, RegistryAlreadyClaimedError, Storage
 from .webapp import WebAppPayloadError, parse_web_app_data
 
 LOGGER = logging.getLogger(__name__)
 RULES_URL = "https://vepricov.github.io/ssh_websile"
 FORM_URL = f"{RULES_URL}/access-form.html"
 SERVER_FORM_URL = f"{RULES_URL}/server-form.html"
+ASCEND_REMINDER_INTERVAL_SECONDS = 86400
 VPN_NOTE = (
     "<b>Как получить VPN для H200</b>\n"
     "Перед подключением получите VPN:\n"
@@ -86,7 +92,10 @@ SERVER_NAMES = {
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200 (VV)",
 }
-SERVICE_NAMES = {"mlsub": "mlsub / Cloud.ru"}
+SERVICE_NAMES = {
+    "mlsub": "mlsub / Cloud.ru",
+    "alibaba_ascend": "Alibaba Ascend",
+}
 ALL_SERVICE_NAMES = {
     **SERVER_NAMES,
     **SERVICE_NAMES,
@@ -234,6 +243,29 @@ def admin_approval_keyboard(request_id: str) -> InlineKeyboardMarkup:
                     text="Отклонить", callback_data=f"admin:reject:{request_id}"
                 ),
             ]
+        ]
+    )
+
+
+def ascend_admin_keyboard(request_id: str, full_name: str) -> InlineKeyboardMarkup:
+    draft = f"Привет! Добавь, пожалуйста, на Alibaba Ascend: {full_name}"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✉️ Передать ФИО @fckand1",
+                    url=f"https://t.me/fckand1?text={quote(draft, safe='')}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✅ Доступ выдан",
+                    callback_data=f"admin:ascend:grant:{request_id}",
+                ),
+                InlineKeyboardButton(
+                    text="Отклонить", callback_data=f"admin:reject:{request_id}"
+                ),
+            ],
         ]
     )
 
@@ -388,7 +420,11 @@ def request_requires_admin(
     user_is_known: bool,
     mlsub_is_missing: bool = True,
 ) -> bool:
-    return not user_is_known or (mlsub_is_missing and "mlsub" in application.servers)
+    return (
+        not user_is_known
+        or (mlsub_is_missing and "mlsub" in application.servers)
+        or "alibaba_ascend" in application.servers
+    )
 
 
 def application_data(application: Application) -> dict[str, object]:
@@ -448,6 +484,75 @@ def application_summary(data: dict[str, object]) -> str:
     )
 
 
+async def deliver_ascend_reminders(
+    bot: object,
+    storage: Storage,
+    admin_user_ids: frozenset[int],
+    *,
+    now: int,
+) -> tuple[str, ...]:
+    await asyncio.to_thread(storage.recover_stale_pending_claims, now=now)
+    requests = await asyncio.to_thread(
+        storage.reserve_due_ascend_reminders, now=now
+    )
+    delivered = []
+    for request_id, application in requests:
+        sent = False
+        text = (
+            "⏰ <b>Доступ на Ascend уже выдали?</b>\n\n"
+            + application_summary(application_data(application))
+            + "\n\nЕсли доступ ещё делают, ничего нажимать не нужно. "
+            "Бот напомнит снова через сутки."
+        )
+        for admin_user_id in admin_user_ids:
+            try:
+                await bot.send_message(
+                    admin_user_id,
+                    text,
+                    reply_markup=ascend_admin_keyboard(
+                        request_id, application.full_name
+                    ),
+                )
+                sent = True
+            except Exception:
+                LOGGER.exception(
+                    "Could not send Ascend reminder %s to admin %s",
+                    request_id,
+                    admin_user_id,
+                )
+        if sent:
+            await asyncio.to_thread(
+                storage.mark_pending_reminder_sent,
+                request_id,
+                now=now,
+                interval_seconds=ASCEND_REMINDER_INTERVAL_SECONDS,
+            )
+            delivered.append(request_id)
+        else:
+            await asyncio.to_thread(storage.release_pending_reminder, request_id)
+    return tuple(delivered)
+
+
+async def run_ascend_reminder_loop(
+    bot: object,
+    storage: Storage,
+    admin_user_ids: frozenset[int],
+    *,
+    check_interval_seconds: int = 300,
+) -> None:
+    while True:
+        try:
+            await deliver_ascend_reminders(
+                bot,
+                storage,
+                admin_user_ids,
+                now=int(time.time()),
+            )
+        except Exception:
+            LOGGER.exception("Ascend reminder loop failed")
+        await asyncio.sleep(check_interval_seconds)
+
+
 def available_servers_text() -> str:
     return (
         "<b>Все серверы лаборатории</b>\n\n"
@@ -468,7 +573,9 @@ def available_servers_text() -> str:
         "<b>Яндекс-сервер</b>\n"
         'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.\n\n'
         "<b>Alibaba Ascend</b>\n"
-        "тестируем. Выдача доступа пока не открыта."
+        "Пилотный внешний ресурс. Заявка отправляется через этого бота, "
+        "а ручную выдачу выполняет @fckand1. После выдачи администратор "
+        "подтвердит её в боте."
     )
 
 
@@ -493,12 +600,17 @@ def demo_accesses(
         "brain_lab": f"ssh -p 10210 {username}@proxy2.cod.phystech.edu",
         "vv_h200": f"ssh -p 30018 {username}@10.0.116.11",
         "mlsub": "mlsub run --repo <https git> --entry train.py --gpus 1",
+        "alibaba_ascend": "Доступ выдаётся вручную через @fckand1",
     }
     return [
         ProvisionedAccess(
             host=host,
             username=username,
-            password=None if host == "mlsub" else "DEMO-PASSWORD",
+            password=(
+                None
+                if host in {"mlsub", "alibaba_ascend"}
+                else "DEMO-PASSWORD"
+            ),
             connection=connections[host],
             group_url="",
             created=False,
@@ -517,8 +629,8 @@ def available_servers_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="◌ Alibaba Ascend · тестируем",
-                    callback_data="catalog:ascend:soon",
+                    text="🧠 Alibaba Ascend",
+                    callback_data="catalog:ascend",
                 )
             ],
         ]
@@ -651,6 +763,27 @@ def server_dashboard_text(
         sections.append(
             "○ <b>mlsub / Cloud.ru</b>\n"
             "Сначала получите доступ к BrainLab, затем отправьте отдельную заявку."
+        )
+    ascend = by_host.get("alibaba_ascend")
+    if ascend is not None:
+        lines = [
+            "✅ <b>Alibaba Ascend</b>",
+            f"Ник: <code>{html.escape(ascend.username)}</code>",
+            "Доступ выдан вручную через @fckand1.",
+        ]
+        if ascend.group_url:
+            safe_url = html.escape(ascend.group_url, quote=True)
+            lines.append(f'Telegram-группа: <a href="{safe_url}">открыть</a>')
+        sections.append("\n".join(lines))
+    elif "alibaba_ascend" in registered:
+        sections.append(
+            "✅ <b>Alibaba Ascend</b>\n"
+            "Доступ найден в таблице. Выдача выполняется вручную через @fckand1."
+        )
+    else:
+        sections.append(
+            "○ <b>Alibaba Ascend</b>\n"
+            "Отправьте отдельную заявку через бота; доступ выдаёт @fckand1."
         )
     sections.append(
         "☁️ <b>Яндекс-сервер</b>\n"
@@ -1003,28 +1136,69 @@ def build_router(
             )
             return
         request_id = secrets.token_urlsafe(8)
-        await asyncio.to_thread(
-            service.storage.save_pending_request, request_id, application
-        )
+        is_ascend = application.servers == ("alibaba_ascend",)
+        if is_ascend and not service.ascend_group_url:
+            await message.answer(
+                "Заявки на Alibaba Ascend временно недоступны: "
+                "администратор ещё не настроил ссылку на группу.",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+            return
+        try:
+            await asyncio.to_thread(
+                service.storage.save_pending_request,
+                request_id,
+                application,
+                remind_at=(
+                    int(time.time()) + ASCEND_REMINDER_INTERVAL_SECONDS
+                    if is_ascend
+                    else None
+                ),
+            )
+        except PendingRequestExistsError:
+            await message.answer(
+                "У вас уже есть активная заявка на этот ресурс. "
+                "Дождитесь решения администратора.",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+            return
         for admin_id in admin_user_ids:
             try:
                 await bot.send_message(
                     admin_id,
                     (
-                        "<b>Отдельная заявка на mlsub</b>\n\n"
-                        if "mlsub" in application.servers
-                        else "<b>Новая заявка на доступ</b>\n\n"
+                        "<b>Заявка на Alibaba Ascend</b>\n\n"
+                        if is_ascend
+                        else (
+                            "<b>Отдельная заявка на mlsub</b>\n\n"
+                            if "mlsub" in application.servers
+                            else "<b>Новая заявка на доступ</b>\n\n"
+                        )
                     )
                     + application_summary(application_data(application)),
-                    reply_markup=admin_approval_keyboard(request_id),
+                    reply_markup=(
+                        ascend_admin_keyboard(request_id, application.full_name)
+                        if is_ascend
+                        else admin_approval_keyboard(request_id)
+                    ),
                 )
             except Exception:
                 LOGGER.exception("Could not notify access admin %s", admin_id)
-        await message.answer(
-            "Заявка отправлена администратору. Больше ничего заполнять не нужно: "
-            "после одобрения бот сам пришлёт доступы.",
-            reply_markup=await personalized_main_menu(message.from_user.id),
-        )
+        if is_ascend:
+            await message.answer(
+                "Заявка на Alibaba Ascend отправлена. Доступ выдаётся вручную, "
+                "поэтому это может занять день или больше. Бот напишет, когда "
+                "администратор подтвердит выдачу.\n\n"
+                f'<a href="{html.escape(service.ascend_group_url, quote=True)}">'
+                "Вступить в общую Telegram-группу</a>",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+        else:
+            await message.answer(
+                "Заявка отправлена администратору. Больше ничего заполнять не нужно: "
+                "после одобрения бот сам пришлёт доступы.",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
 
     @router.callback_query(
         Form.registry_confirm, F.data.startswith("registry:confirm:")
@@ -1153,6 +1327,75 @@ def build_router(
             bot,
         )
 
+    @router.callback_query(F.data.startswith("admin:ascend:grant:"))
+    async def confirm_ascend_access(callback: CallbackQuery, bot: Bot) -> None:
+        if callback.from_user.id not in admin_user_ids:
+            await callback.answer("Недостаточно прав.", show_alert=True)
+            return
+        request_id = (callback.data or "").rsplit(":", 1)[-1]
+        application = await asyncio.to_thread(
+            service.storage.claim_pending_request,
+            request_id,
+            required_server="alibaba_ascend",
+        )
+        if application is None:
+            await callback.answer("Заявка уже обработана.", show_alert=True)
+            return
+        try:
+            access = await asyncio.to_thread(service.grant_external_access, application)
+        except Exception:
+            LOGGER.exception("Could not confirm Ascend access request %s", request_id)
+            await asyncio.to_thread(
+                service.storage.release_pending_request_claim, request_id
+            )
+            await callback.answer(
+                "Не удалось сохранить доступ. Кнопка остаётся активной.",
+                show_alert=True,
+            )
+            return
+        try:
+            registered = await asyncio.to_thread(
+                service.storage.registry_services_for,
+                application.telegram_user_id,
+            )
+            access_hosts = await asyncio.to_thread(
+                service.storage.access_hosts_for,
+                application.telegram_user_id,
+            )
+            sheet_application = Application(
+                telegram_user_id=application.telegram_user_id,
+                telegram_username=application.telegram_username,
+                full_name=application.full_name,
+                server_username=application.server_username,
+                access_term=application.access_term,
+                recommender=application.recommender,
+                activity=application.activity,
+                servers=tuple(dict.fromkeys((*registered, *access_hosts))),
+            )
+            await asyncio.to_thread(
+                sheets.upsert,
+                sheet_application,
+                "active: " + ", ".join(sheet_application.servers),
+            )
+        except Exception:
+            LOGGER.exception("Could not synchronize Ascend access with Google Sheets")
+        await asyncio.to_thread(
+            service.storage.resolve_pending_request, request_id, "approved"
+        )
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        await bot.send_message(
+            application.telegram_user_id,
+            "✅ <b>Доступ к Alibaba Ascend выдан</b>\n\n"
+            "Он уже отображается в «Мои серверы».\n"
+            f'<a href="{html.escape(access.group_url, quote=True)}">'
+            "Вступить в общую Telegram-группу</a>",
+            reply_markup=await personalized_main_menu(application.telegram_user_id),
+        )
+        await callback.answer("Доступ отмечен как выданный")
+        if callback.message:
+            await callback.message.answer("Доступ к Alibaba Ascend подтверждён.")
+
     @router.callback_query(F.data.startswith("admin:approve:"))
     async def approve_new_user(callback: CallbackQuery, bot: Bot) -> None:
         if callback.from_user.id not in admin_user_ids:
@@ -1160,7 +1403,9 @@ def build_router(
             return
         request_id = (callback.data or "").rsplit(":", 1)[-1]
         application = await asyncio.to_thread(
-            service.storage.claim_pending_request, request_id
+            service.storage.claim_pending_request,
+            request_id,
+            forbidden_server="alibaba_ascend",
         )
         if application is None:
             await callback.answer("Заявка уже обработана.", show_alert=True)
@@ -1545,12 +1790,20 @@ def build_router(
                 ),
             )
 
-    @router.callback_query(F.data == "catalog:ascend:soon")
-    async def ascend_soon(callback: CallbackQuery) -> None:
-        await callback.answer(
-            "Alibaba Ascend сейчас тестируется. Доступ появится позже.",
-            show_alert=True,
-        )
+    @router.callback_query(F.data == "catalog:ascend")
+    async def ascend_catalog(callback: CallbackQuery, state: FSMContext) -> None:
+        await state.clear()
+        await callback.answer()
+        if callback.message:
+            await callback.message.answer(
+                "<b>Alibaba Ascend</b>\n\n"
+                "Пилотный внешний ресурс. Заявка оформляется через бота, "
+                "а аккаунт вручную создаёт @fckand1. Это может занять день "
+                "или больше; после выдачи администратор подтвердит доступ в боте.",
+                reply_markup=await personalized_server_request_menu(
+                    "alibaba_ascend", callback.from_user.id
+                ),
+            )
 
     @router.message(F.text == "📚 Сайт и правила")
     async def site_and_rules(message: Message, state: FSMContext) -> None:
@@ -1652,7 +1905,11 @@ def build_router(
 
 async def run(settings: Settings) -> None:
     storage = Storage(settings.database_path, settings.encryption_key)
-    service = AccessService(storage, SshProvisioner())
+    service = AccessService(
+        storage,
+        SshProvisioner(),
+        ascend_group_url=settings.ascend_group_url,
+    )
     process_controller = GpuProcessController(
         sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids),
         nopasswd_hosts={"yandex"},
@@ -1683,6 +1940,11 @@ async def run(settings: Settings) -> None:
     )
     monitor_task = None
     disk_monitor_task = None
+    ascend_reminder_task = None
+    if settings.admin_user_ids:
+        ascend_reminder_task = asyncio.create_task(
+            run_ascend_reminder_loop(bot, storage, settings.admin_user_ids)
+        )
     if settings.gpu_monitor_enabled:
         policy = GpuIdlePolicy(
             interval_seconds=settings.gpu_monitor_interval_seconds,
@@ -1762,6 +2024,10 @@ async def run(settings: Settings) -> None:
             disk_monitor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await disk_monitor_task
+        if ascend_reminder_task is not None:
+            ascend_reminder_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await ascend_reminder_task
 
 
 def main() -> None:

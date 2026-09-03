@@ -12,6 +12,7 @@ class Settings:
     google_service_account_file: Path
     spreadsheet_id: str
     sheet_id: int
+    ascend_group_url: str = ""
     demo_user_ids: frozenset[int] = frozenset()
     admin_user_ids: frozenset[int] = frozenset()
     gpu_monitor_enabled: bool = True
@@ -59,6 +60,7 @@ class Settings:
                 "13wqQBDOwjVsuSc6nDctkUcjAs2BVIbmJd23kEVNbU98",
             ),
             sheet_id=int(os.environ.get("GOOGLE_SHEET_ID", "1269070972")),
+            ascend_group_url=os.environ.get("ASCEND_GROUP_URL", "").strip(),
             demo_user_ids=demo_user_ids,
             admin_user_ids=admin_user_ids,
             gpu_monitor_enabled=os.environ.get(

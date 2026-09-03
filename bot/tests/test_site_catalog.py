@@ -16,8 +16,11 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     assert resources["mlsub"]["kind"] == "compute-service"
     assert resources["mlsub"]["requires"] == ["new_server"]
     assert resources["mlsub"]["approval"] == "separate-admin-approval"
-    assert resources["alibaba_ascend"]["status"] == "testing"
-    assert resources["alibaba_ascend"]["requestable"] is False
+    assert resources["alibaba_ascend"]["status"] == "pilot"
+    assert resources["alibaba_ascend"]["requestable"] is True
+    assert resources["alibaba_ascend"]["approval"] == "external-manual-approval"
+    assert resources["alibaba_ascend"]["access_contact"] == "@fckand1"
+    assert "group" not in resources["alibaba_ascend"]
     serialized = json.dumps(data).lower()
     assert "password" not in serialized
     assert "api_key" not in serialized
@@ -42,3 +45,25 @@ def test_web_form_requires_mlsub_to_be_requested_separately() -> None:
 
     assert 'payload.servers.includes("mlsub")' in form_logic
     assert "mlsub оформляется отдельной заявкой" in form_logic
+
+
+def test_web_form_offers_ascend_as_a_separate_request() -> None:
+    form = (ROOT / "server-form.html").read_text()
+    form_logic = (ROOT / "server-form.js").read_text()
+
+    assert 'name="servers" value="alibaba_ascend"' in form
+    assert 'payload.servers.includes("alibaba_ascend")' in form_logic
+    assert "Ascend оформляется отдельной заявкой" in form_logic
+
+
+def test_public_pages_offer_ascend_through_the_bot() -> None:
+    home = (ROOT / "index.html").read_text()
+    catalog = (ROOT / "servers.html").read_text()
+    agents = (ROOT / "llms.txt").read_text()
+
+    assert 'href="servers.html#alibaba-ascend"' in home
+    assert "Пилотный внешний ресурс" in catalog
+    assert "Ручная выдача" in catalog
+    assert "Подать заявку" in catalog
+    assert "testing-only" not in agents
+    assert "@fckand1" in agents

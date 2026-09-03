@@ -523,6 +523,66 @@ def test_mlsub_must_be_submitted_as_a_separate_request(tmp_path: Path) -> None:
         raise AssertionError("mlsub was combined with another server request")
 
 
+def test_alibaba_ascend_is_valid_only_as_a_separate_request(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    service = AccessService(storage, FakeProvisioner())
+    base = dict(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Example",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Andrey Example",
+        activity="Research",
+    )
+
+    service.validate_request(Application(servers=("alibaba_ascend",), **base))
+
+    try:
+        service.validate_request(
+            Application(servers=("alibaba_ascend", "brain_lab"), **base)
+        )
+    except ValidationError as error:
+        assert "Ascend оформляется отдельной заявкой" in str(error)
+    else:
+        raise AssertionError("Ascend was combined with another server request")
+
+
+def test_granting_ascend_records_access_without_provisioning(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    provisioner = FakeProvisioner()
+    service = AccessService(
+        storage,
+        provisioner,
+        ascend_group_url="https://t.me/+test-only",
+    )
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Example",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Andrey Example",
+        activity="Ascend experiments",
+        servers=("alibaba_ascend",),
+    )
+
+    access = service.grant_external_access(application)
+
+    assert access.host == "alibaba_ascend"
+    assert access.password is None
+    assert access.group_url == "https://t.me/+test-only"
+    assert storage.has_access(101, "alibaba_ascend")
+    assert provisioner.calls == []
+    assert service.grant_external_access(application) == access
+    try:
+        service.validate_request(application)
+    except ValidationError as error:
+        assert "уже отмечен как выданный" in str(error)
+    else:
+        raise AssertionError("duplicate Ascend access was accepted")
+
+
 def test_existing_user_cannot_switch_unix_username(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
     service = AccessService(storage, FakeProvisioner())

@@ -10,7 +10,7 @@ Public, secret-free documentation for users and automation agents.
 - H200: /servers.html#h200
 - mlsub / Cloud.ru: /servers.html#mlsub
 - Яндекс-сервер: /servers.html#yandex
-- Alibaba Ascend preview: /servers.html#alibaba-ascend
+- Alibaba Ascend: /servers.html#alibaba-ascend
 - Rules: /rules.html
 - General SSH/Python/Linux/tmux guides: /tools.html
 
@@ -19,7 +19,8 @@ Public, secret-free documentation for users and automation agents.
 2. Connection commands, usernames and passwords are personal and come only from the Telegram access bot.
 3. H200 requires a separate VPN before SSH access. The user sends full name and MIPT email to @undef1ne5, waits for the email from helpdesk02@vkusvill.ru, then submits the access request through @brainlab_server_access_bot. No separate administrator message is required.
 4. mlsub is a separate compute service, not another SSH server. Requesting it requires existing approved access to the BrainLab server and a separate administrator approval.
-5. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
+5. Alibaba Ascend is a pilot external resource. Submit a separate request through @brainlab_server_access_bot. The account is created manually by @fckand1 and can take a day or longer.
+6. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
 
 ## Access
-Use https://t.me/brainlab_server_access_bot for managed resources. The Yandex resource is external and is handled by @aloeme. Alibaba Ascend is testing-only and cannot be requested.
+Use https://t.me/brainlab_server_access_bot for managed resources and Alibaba Ascend requests. The Yandex resource is external and is handled by @aloeme.

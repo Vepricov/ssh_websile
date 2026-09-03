@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import time
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -21,6 +22,10 @@ from .domain import (
 
 
 class RegistryAlreadyClaimedError(ValueError):
+    pass
+
+
+class PendingRequestExistsError(ValueError):
     pass
 
 
@@ -98,7 +103,10 @@ class Storage:
                     payload TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    resolved_at TEXT
+                    resolved_at TEXT,
+                    next_reminder_at INTEGER,
+                    reminder_reserved_at INTEGER,
+                    processing_started_at INTEGER
                 );
                 CREATE TABLE IF NOT EXISTS gpu_idle_observations (
                     incident_key TEXT PRIMARY KEY,
@@ -167,6 +175,22 @@ class Storage:
                 );
                 """
             )
+            pending_columns = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(pending_requests)")
+            }
+            if "next_reminder_at" not in pending_columns:
+                db.execute(
+                    "ALTER TABLE pending_requests ADD COLUMN next_reminder_at INTEGER"
+                )
+            if "reminder_reserved_at" not in pending_columns:
+                db.execute(
+                    "ALTER TABLE pending_requests ADD COLUMN reminder_reserved_at INTEGER"
+                )
+            if "processing_started_at" not in pending_columns:
+                db.execute(
+                    "ALTER TABLE pending_requests ADD COLUMN processing_started_at INTEGER"
+                )
             db.execute(
                 """
                 INSERT OR IGNORE INTO profiles (
@@ -1069,7 +1093,11 @@ class Storage:
             )
 
     def save_pending_request(
-        self, request_id: str, application: Application
+        self,
+        request_id: str,
+        application: Application,
+        *,
+        remind_at: int | None = None,
     ) -> None:
         payload = json.dumps(
             {
@@ -1085,33 +1113,34 @@ class Storage:
             ensure_ascii=False,
         )
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                """
+                SELECT payload FROM pending_requests
+                WHERE telegram_user_id = ? AND status IN ('pending', 'processing')
+                """,
+                (application.telegram_user_id,),
+            ).fetchall()
+            if any(
+                set(self._pending_application(str(row["payload"])).servers)
+                & set(application.servers)
+                for row in rows
+            ):
+                raise PendingRequestExistsError(
+                    "active request for this service already exists"
+                )
             db.execute(
                 """
                 INSERT INTO pending_requests (
-                    request_id, telegram_user_id, payload
-                ) VALUES (?, ?, ?)
+                    request_id, telegram_user_id, payload, next_reminder_at
+                ) VALUES (?, ?, ?, ?)
                 """,
-                (request_id, application.telegram_user_id, payload),
+                (request_id, application.telegram_user_id, payload, remind_at),
             )
 
-    def claim_pending_request(self, request_id: str) -> Application | None:
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT payload FROM pending_requests WHERE request_id = ?",
-                (request_id,),
-            ).fetchone()
-            if row is None:
-                return None
-            updated = db.execute(
-                """
-                UPDATE pending_requests SET status = 'processing'
-                WHERE request_id = ? AND status = 'pending'
-                """,
-                (request_id,),
-            )
-            if updated.rowcount != 1:
-                return None
-            data = json.loads(str(row["payload"]))
+    @staticmethod
+    def _pending_application(payload: str) -> Application:
+        data = json.loads(payload)
         return Application(
             telegram_user_id=int(data["telegram_user_id"]),
             telegram_username=data["telegram_username"],
@@ -1123,6 +1152,141 @@ class Storage:
             servers=tuple(str(host) for host in data["servers"]),
         )
 
+    def reserve_due_ascend_reminders(
+        self, *, now: int
+    ) -> tuple[tuple[str, Application], ...]:
+        reserved: list[tuple[str, Application]] = []
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                """
+                SELECT request_id, payload FROM pending_requests
+                WHERE status = 'pending'
+                  AND next_reminder_at IS NOT NULL
+                  AND next_reminder_at <= ?
+                  AND (
+                    reminder_reserved_at IS NULL
+                    OR reminder_reserved_at <= ?
+                  )
+                ORDER BY next_reminder_at, request_id
+                """,
+                (now, now - 600),
+            ).fetchall()
+            for row in rows:
+                application = self._pending_application(str(row["payload"]))
+                if application.servers != ("alibaba_ascend",):
+                    continue
+                updated = db.execute(
+                    """
+                    UPDATE pending_requests SET reminder_reserved_at = ?
+                    WHERE request_id = ? AND status = 'pending'
+                    """,
+                    (now, str(row["request_id"])),
+                )
+                if updated.rowcount == 1:
+                    reserved.append((str(row["request_id"]), application))
+        return tuple(reserved)
+
+    def mark_pending_reminder_sent(
+        self, request_id: str, *, now: int, interval_seconds: int = 86400
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE pending_requests SET
+                    next_reminder_at = ?, reminder_reserved_at = NULL
+                WHERE request_id = ? AND status = 'pending'
+                """,
+                (now + interval_seconds, request_id),
+            )
+
+    def release_pending_reminder(self, request_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE pending_requests SET reminder_reserved_at = NULL
+                WHERE request_id = ? AND status = 'pending'
+                """,
+                (request_id,),
+            )
+
+    def claim_pending_request(
+        self,
+        request_id: str,
+        *,
+        required_server: str | None = None,
+        forbidden_server: str | None = None,
+        now: int | None = None,
+        lease_seconds: int = 3600,
+    ) -> Application | None:
+        claimed_at = int(time.time()) if now is None else now
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                """
+                SELECT payload FROM pending_requests
+                WHERE request_id = ? AND (
+                    status = 'pending'
+                    OR (
+                        status = 'processing'
+                        AND (
+                            processing_started_at IS NULL
+                            OR processing_started_at <= ?
+                        )
+                    )
+                )
+                """,
+                (request_id, claimed_at - lease_seconds),
+            ).fetchone()
+            if row is None:
+                return None
+            application = self._pending_application(str(row["payload"]))
+            if required_server is not None and application.servers != (
+                required_server,
+            ):
+                return None
+            if forbidden_server is not None and forbidden_server in application.servers:
+                return None
+            updated = db.execute(
+                """
+                UPDATE pending_requests
+                SET status = 'processing', processing_started_at = ?
+                WHERE request_id = ? AND (
+                    status = 'pending'
+                    OR (
+                        status = 'processing'
+                        AND (
+                            processing_started_at IS NULL
+                            OR processing_started_at <= ?
+                        )
+                    )
+                )
+                """,
+                (claimed_at, request_id, claimed_at - lease_seconds),
+            )
+            if updated.rowcount != 1:
+                return None
+        return application
+
+    def recover_stale_pending_claims(
+        self, *, now: int, lease_seconds: int = 3600
+    ) -> int:
+        with self._connect() as db:
+            updated = db.execute(
+                """
+                UPDATE pending_requests
+                SET status = 'pending', processing_started_at = NULL,
+                    reminder_reserved_at = NULL
+                WHERE status = 'processing'
+                  AND (
+                    processing_started_at IS NULL
+                    OR processing_started_at <= ?
+                  )
+                """,
+                (now - lease_seconds,),
+            )
+        return updated.rowcount
+
     def resolve_pending_request(self, request_id: str, status: str) -> None:
         if status not in {"approved", "rejected", "failed"}:
             raise ValueError("invalid pending request status")
@@ -1130,10 +1294,23 @@ class Storage:
             db.execute(
                 """
                 UPDATE pending_requests
-                SET status = ?, resolved_at = CURRENT_TIMESTAMP
+                SET status = ?, resolved_at = CURRENT_TIMESTAMP,
+                    processing_started_at = NULL
                 WHERE request_id = ?
                 """,
                 (status, request_id),
+            )
+
+    def release_pending_request_claim(self, request_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE pending_requests
+                SET status = 'pending', reminder_reserved_at = NULL,
+                    processing_started_at = NULL
+                WHERE request_id = ? AND status = 'processing'
+                """,
+                (request_id,),
             )
 
     def has_access(self, telegram_user_id: int, host: str) -> bool:

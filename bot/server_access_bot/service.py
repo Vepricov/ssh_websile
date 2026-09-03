@@ -20,7 +20,9 @@ class ValidationError(ValueError):
 
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 TELEGRAM_RE = re.compile(r"^@[A-Za-z0-9_]{3,}$")
-ALLOWED_HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200", "mlsub"})
+ALLOWED_HOSTS = frozenset(
+    {"shkodnik_opt", "brain_lab", "vv_h200", "mlsub", "alibaba_ascend"}
+)
 MOSCOW_TIME = ZoneInfo("Europe/Moscow")
 
 
@@ -78,14 +80,60 @@ def validate(application: Application) -> None:
 
 
 class AccessService:
-    def __init__(self, storage: Storage, provisioner: Provisioner) -> None:
+    def __init__(
+        self,
+        storage: Storage,
+        provisioner: Provisioner,
+        *,
+        ascend_group_url: str = "",
+    ) -> None:
         self.storage = storage
         self.provisioner = provisioner
+        self.ascend_group_url = ascend_group_url
         self._submit_lock = threading.Lock()
 
     def submit(self, application: Application) -> list[ProvisionedAccess]:
         with self._submit_lock:
             return self._submit_locked(application)
+
+    def grant_external_access(self, application: Application) -> ProvisionedAccess:
+        with self._submit_lock:
+            if application.servers != ("alibaba_ascend",):
+                raise ValidationError("Ручная выдача доступна только для Ascend.")
+            if self.storage.has_access(
+                application.telegram_user_id, "alibaba_ascend"
+            ):
+                existing = next(
+                    access
+                    for access in self.storage.credentials_for(
+                        application.telegram_user_id
+                    )
+                    if access.host == "alibaba_ascend"
+                )
+                if existing.username != application.server_username:
+                    raise ValidationError(
+                        "Ascend уже связан с другим серверным ником."
+                    )
+                return existing
+            self.validate_request(application)
+            if not self.ascend_group_url:
+                raise RuntimeError("ASCEND_GROUP_URL is not configured")
+            access = ProvisionedAccess(
+                host="alibaba_ascend",
+                username=application.server_username,
+                password=None,
+                connection="Доступ выдаётся вручную через @fckand1",
+                group_url=self.ascend_group_url,
+                created=False,
+            )
+            self.storage.save_application(application)
+            self.storage.save_access(application.telegram_user_id, access)
+            self.storage.record_event(
+                application.telegram_user_id,
+                "external_access_granted",
+                "alibaba_ascend",
+            )
+            return access
 
     def validate_request(self, application: Application) -> None:
         validate(application)
@@ -106,6 +154,21 @@ class AccessService:
                 "серверы и отправьте заявку только на mlsub."
             )
         if (
+            "alibaba_ascend" in application.servers
+            and len(application.servers) != 1
+        ):
+            raise ValidationError(
+                "Ascend оформляется отдельной заявкой. Уберите остальные "
+                "серверы и отправьте заявку только на Ascend."
+            )
+        if "alibaba_ascend" in application.servers and (
+            self.storage.has_access(application.telegram_user_id, "alibaba_ascend")
+            or self.storage.has_registered_service(
+                application.telegram_user_id, "alibaba_ascend"
+            )
+        ):
+            raise ValidationError("Доступ к Alibaba Ascend уже отмечен как выданный.")
+        if (
             "mlsub" in application.servers
             and not self.storage.has_access(application.telegram_user_id, "brain_lab")
             and not self.storage.has_registered_service(
@@ -119,6 +182,10 @@ class AccessService:
 
     def _submit_locked(self, application: Application) -> list[ProvisionedAccess]:
         self.validate_request(application)
+        if "alibaba_ascend" in application.servers:
+            raise ValidationError(
+                "Доступ к Ascend подтверждается администратором вручную."
+            )
         requested_hosts = list(application.servers)
         missing_hosts = [
             host

@@ -88,6 +88,23 @@ def test_mlsub_has_a_distinct_sheet_label() -> None:
     assert values[6] == "mlsub / Cloud.ru — отдельный сервис через BrainLab"
 
 
+def test_ascend_has_a_distinct_sheet_label() -> None:
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="Ascend experiments",
+        servers=("alibaba_ascend",),
+    )
+
+    values = application_values(application, "active: alibaba_ascend")
+
+    assert values[6] == "Alibaba Ascend — внешняя ручная выдача"
+
+
 def test_registry_rows_for_same_identity_are_merged_by_server() -> None:
     rows = [
         registry_row(

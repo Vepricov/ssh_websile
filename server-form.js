@@ -174,6 +174,15 @@
                 "mlsub оформляется отдельной заявкой. Оставьте выбранным только mlsub.",
             );
             valid = false;
+        } else if (
+            payload.servers.includes("alibaba_ascend")
+            && payload.servers.length > 1
+        ) {
+            setError(
+                serversError,
+                "Ascend оформляется отдельной заявкой. Оставьте выбранным только Ascend.",
+            );
+            valid = false;
         }
         return valid;
     }
