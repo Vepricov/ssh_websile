@@ -13,6 +13,7 @@ from server_access_bot.app import (
     main_menu,
     my_info_text,
     onboarding_text,
+    reconcile_google_sheets,
     registry_confirmation_keyboard,
     registry_confirmation_text,
     registry_link_can_be_claimed,
@@ -43,6 +44,46 @@ def registry_match() -> RegistryMatch:
         source_row_count=2,
         telegram_user_id=101,
     )
+
+
+def test_sheet_reconciliation_replays_users_and_requests() -> None:
+    profile = Profile(101, "alice_tg", "Alice Smith", "Bob Jones")
+    application = application_from_request(
+        profile,
+        ServerRequest(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            server_username="alice",
+            access_term="бессрочно",
+            activity="fine-tuning",
+            servers=("brain_lab",),
+        ),
+    )
+
+    class FakeStorage:
+        def sheet_user_records(self):
+            return ((profile, "Профиль заполнен", ()),)
+
+        def sheet_request_records(self):
+            return (("request-1", application, "Ожидает одобрения"),)
+
+    class FakeSheets:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def sync_snapshot(self, users, requests) -> None:
+            self.calls.append((users, requests))
+
+    sheets = FakeSheets()
+
+    reconcile_google_sheets(FakeStorage(), sheets)
+
+    assert sheets.calls == [
+        (
+            ((profile, "Профиль заполнен", ()),),
+            (("request-1", application, "Ожидает одобрения"),),
+        )
+    ]
 
 
 def test_server_request_is_combined_with_saved_profile() -> None:

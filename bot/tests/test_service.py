@@ -69,6 +69,39 @@ def test_access_hosts_can_be_read_without_decrypting_credentials(
     assert storage.access_hosts_for(101) == ("brain_lab",)
 
 
+def test_sheet_snapshot_keeps_profile_only_user_separate_from_accesses(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    profile = Profile(101, "alice_tg", "Alice Smith", "Bob Jones")
+    storage.save_profile(profile)
+
+    records = storage.sheet_user_records()
+
+    assert records == ((profile, "Профиль заполнен", ()),)
+
+
+def test_sheet_snapshot_preserves_each_request_status(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="fine-tuning",
+        servers=("alibaba_ascend",),
+    )
+    storage.save_pending_request("request-1", application)
+    storage.claim_pending_request("request-1")
+    storage.resolve_pending_request("request-1", "approved")
+
+    assert storage.sheet_request_records() == (
+        ("request-1", application, "Доступ выдан"),
+    )
+
+
 def test_profile_storage_is_added_to_an_existing_database(tmp_path: Path) -> None:
     database = tmp_path / "bot.sqlite3"
     Storage(database, b"0" * 32)

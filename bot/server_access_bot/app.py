@@ -75,6 +75,7 @@ RULES_URL = "https://vepricov.github.io/ssh_websile"
 FORM_URL = f"{RULES_URL}/access-form.html"
 SERVER_FORM_URL = f"{RULES_URL}/server-form.html"
 ASCEND_REMINDER_INTERVAL_SECONDS = 86400
+SHEETS_RECONCILIATION_INTERVAL_SECONDS = 300
 VPN_NOTE = (
     "<b>Как получить VPN для H200</b>\n"
     "Перед подключением получите VPN:\n"
@@ -553,6 +554,30 @@ async def run_ascend_reminder_loop(
         await asyncio.sleep(check_interval_seconds)
 
 
+def reconcile_google_sheets(
+    storage: Storage,
+    sheets: GoogleSheetsRepository,
+) -> None:
+    sheets.sync_snapshot(
+        storage.sheet_user_records(),
+        storage.sheet_request_records(),
+    )
+
+
+async def run_sheets_reconciliation_loop(
+    storage: Storage,
+    sheets: GoogleSheetsRepository,
+    *,
+    interval_seconds: int = SHEETS_RECONCILIATION_INTERVAL_SECONDS,
+) -> None:
+    while True:
+        try:
+            await asyncio.to_thread(reconcile_google_sheets, storage, sheets)
+        except Exception:
+            LOGGER.exception("Google Sheets reconciliation failed")
+        await asyncio.sleep(interval_seconds)
+
+
 def available_servers_text() -> str:
     return (
         "<b>Все серверы лаборатории</b>\n\n"
@@ -930,7 +955,7 @@ def build_router(
         bot: Bot,
     ) -> bool:
         try:
-            created_accesses = await asyncio.to_thread(service.submit, application)
+            await asyncio.to_thread(service.submit, application)
             accesses = await asyncio.to_thread(
                 service.credentials_for, application.telegram_user_id
             )
@@ -950,12 +975,6 @@ def build_router(
                 reply_markup=await personalized_main_menu(user.id),
             )
             return False
-        if created_accesses:
-            status = "active: " + ", ".join(access.host for access in accesses)
-            try:
-                await asyncio.to_thread(sheets.upsert, application, status)
-            except Exception:
-                LOGGER.exception("Google Sheets synchronization failed")
         registry, registered_services = await asyncio.gather(
             asyncio.to_thread(
                 service.storage.registry_match_for, application.telegram_user_id
@@ -1353,32 +1372,6 @@ def build_router(
                 show_alert=True,
             )
             return
-        try:
-            registered = await asyncio.to_thread(
-                service.storage.registry_services_for,
-                application.telegram_user_id,
-            )
-            access_hosts = await asyncio.to_thread(
-                service.storage.access_hosts_for,
-                application.telegram_user_id,
-            )
-            sheet_application = Application(
-                telegram_user_id=application.telegram_user_id,
-                telegram_username=application.telegram_username,
-                full_name=application.full_name,
-                server_username=application.server_username,
-                access_term=application.access_term,
-                recommender=application.recommender,
-                activity=application.activity,
-                servers=tuple(dict.fromkeys((*registered, *access_hosts))),
-            )
-            await asyncio.to_thread(
-                sheets.upsert,
-                sheet_application,
-                "active: " + ", ".join(sheet_application.servers),
-            )
-        except Exception:
-            LOGGER.exception("Could not synchronize Ascend access with Google Sheets")
         await asyncio.to_thread(
             service.storage.resolve_pending_request, request_id, "approved"
         )
@@ -1941,6 +1934,9 @@ async def run(settings: Settings) -> None:
     monitor_task = None
     disk_monitor_task = None
     ascend_reminder_task = None
+    sheets_reconciliation_task = asyncio.create_task(
+        run_sheets_reconciliation_loop(storage, sheets)
+    )
     if settings.admin_user_ids:
         ascend_reminder_task = asyncio.create_task(
             run_ascend_reminder_loop(bot, storage, settings.admin_user_ids)
@@ -2028,6 +2024,9 @@ async def run(settings: Settings) -> None:
             ascend_reminder_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await ascend_reminder_task
+        sheets_reconciliation_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await sheets_reconciliation_task
 
 
 def main() -> None:

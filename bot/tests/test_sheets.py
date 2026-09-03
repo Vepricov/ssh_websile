@@ -2,12 +2,17 @@ from datetime import UTC, datetime
 
 import pytest
 
-from server_access_bot.domain import Application
+from server_access_bot.domain import Application, Profile
 from server_access_bot.sheets import (
     BOT_HEADERS,
+    BOT_REQUEST_HEADERS,
+    BOT_USER_HEADERS,
     FORM_HEADERS,
     RegistryAmbiguousError,
-    application_values,
+    bot_registry_match_from_rows,
+    bot_request_values,
+    bot_user_values,
+    pad_snapshot_values,
     registry_claim_plan_from_sheet_values,
     registry_match_by_server_username_from_sheet_values,
     registry_match_from_rows,
@@ -38,7 +43,7 @@ def registry_row(
     ]
 
 
-def test_application_maps_to_existing_form_columns_plus_bot_metadata() -> None:
+def test_application_maps_to_bot_user_registry() -> None:
     application = Application(
         telegram_user_id=101,
         telegram_username="alice_tg",
@@ -50,25 +55,106 @@ def test_application_maps_to_existing_form_columns_plus_bot_metadata() -> None:
         servers=("brain_lab", "vv_h200"),
     )
 
-    values = application_values(
+    values = bot_user_values(
         application,
-        status="created: brain_lab, vv_h200",
+        status="Доступ выдан",
+        registry_servers=("brain_lab", "vv_h200"),
         now=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
     )
 
     assert values == [
-        "30-08-2026 12:00:00 UTC",
+        "101",
+        "@alice_tg",
         "Alice Smith",
         "alice",
         "бессрочно",
         "Bob Jones",
-        "@alice_tg",
-        "Новый сервер (BrainLab) -- x4 A100 80гб, H200 (VB) - x8 H200 140гб",
         "fine-tuning",
-        "101",
-        "created: brain_lab, vv_h200",
+        "Новый сервер (BrainLab); H200",
+        "Доступ выдан",
         "30-08-2026 12:00:00 UTC",
     ]
+
+
+def test_profile_maps_to_a_bot_registry_row_without_server_data() -> None:
+    profile = Profile(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        recommender="Bob Jones",
+    )
+
+    values = bot_user_values(
+        profile,
+        status="Профиль заполнен",
+        now=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
+    )
+
+    assert values == [
+        "101",
+        "@alice_tg",
+        "Alice Smith",
+        "",
+        "",
+        "Bob Jones",
+        "",
+        "",
+        "Профиль заполнен",
+        "30-08-2026 12:00:00 UTC",
+    ]
+
+
+def test_bot_registry_is_authoritative_for_granted_servers() -> None:
+    rows = [
+        list(BOT_USER_HEADERS),
+        [
+            "101", "@alice_tg", "Alice Smith", "alice", "бессрочно",
+            "Bob Jones", "fine-tuning", "Новый сервер (BrainLab); H200",
+            "Доступ выдан", "30-08-2026 12:00:00 UTC",
+        ],
+    ]
+
+    match = bot_registry_match_from_rows(rows, telegram_username="ALICE_TG")
+
+    assert match is not None
+    assert match.telegram_user_id == 101
+    assert match.servers == ("brain_lab", "vv_h200")
+
+
+def test_bot_registry_rejects_duplicate_telegram_identity() -> None:
+    rows = [
+        list(BOT_USER_HEADERS),
+        ["101", "@alice_tg"],
+        ["202", "@alice_tg"],
+    ]
+
+    with pytest.raises(RegistryAmbiguousError):
+        bot_registry_match_from_rows(rows, telegram_username="alice_tg")
+
+
+def test_profile_only_bot_row_is_not_treated_as_granted_registry_access() -> None:
+    rows = [
+        list(BOT_USER_HEADERS),
+        [
+            "101", "@alice_tg", "Alice Smith", "", "", "Bob Jones", "",
+            "", "Профиль заполнен", "30-08-2026 12:00:00 UTC",
+        ],
+    ]
+
+    assert bot_registry_match_from_rows(rows, telegram_username="alice_tg") is None
+
+
+def test_failed_application_without_access_does_not_mask_legacy_registry() -> None:
+    rows = [
+        list(BOT_USER_HEADERS),
+        [
+            "101", "@alice_tg", "Alice Smith", "alice", "бессрочно",
+            "Bob Jones", "fine-tuning", "", "Ошибка выдачи",
+            "30-08-2026 12:00:00 UTC",
+        ],
+    ]
+
+    assert bot_registry_match_from_rows(rows, telegram_username="alice_tg") is None
 
 
 def test_mlsub_has_a_distinct_sheet_label() -> None:
@@ -83,9 +169,9 @@ def test_mlsub_has_a_distinct_sheet_label() -> None:
         servers=("mlsub",),
     )
 
-    values = application_values(application, "active")
+    values = bot_user_values(application, "Доступ выдан", ("mlsub",))
 
-    assert values[6] == "mlsub / Cloud.ru — отдельный сервис через BrainLab"
+    assert values[7] == "mlsub / Cloud.ru"
 
 
 def test_ascend_has_a_distinct_sheet_label() -> None:
@@ -100,9 +186,47 @@ def test_ascend_has_a_distinct_sheet_label() -> None:
         servers=("alibaba_ascend",),
     )
 
-    values = application_values(application, "active: alibaba_ascend")
+    values = bot_user_values(application, "Доступ выдан", ("alibaba_ascend",))
 
-    assert values[6] == "Alibaba Ascend — внешняя ручная выдача"
+    assert values[7] == "Alibaba Ascend"
+
+
+def test_each_request_has_a_separate_status_row() -> None:
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="Ascend experiments",
+        servers=("alibaba_ascend",),
+    )
+
+    values = bot_request_values(
+        "request-1",
+        application,
+        "Ожидает одобрения",
+        now=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
+    )
+
+    assert len(values) == len(BOT_REQUEST_HEADERS)
+    assert values[0] == "request-1"
+    assert values[5] == "Alibaba Ascend"
+    assert values[6] == "Ожидает одобрения"
+
+
+def test_shorter_snapshot_clears_stale_tail_rows() -> None:
+    values = [["header"], ["current-user"]]
+
+    padded = pad_snapshot_values(values, previous_row_count=4, column_count=3)
+
+    assert padded == [
+        ["header"],
+        ["current-user"],
+        ["", "", ""],
+        ["", "", ""],
+    ]
 
 
 def test_registry_rows_for_same_identity_are_merged_by_server() -> None:

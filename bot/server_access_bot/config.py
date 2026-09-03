@@ -57,7 +57,7 @@ class Settings:
             ),
             spreadsheet_id=os.environ.get(
                 "GOOGLE_SPREADSHEET_ID",
-                "13wqQBDOwjVsuSc6nDctkUcjAs2BVIbmJd23kEVNbU98",
+                "1S_0e24zqR_vadGb6GpJhL_BxY8Vw9pLudT-GEiwmqP8",
             ),
             sheet_id=int(os.environ.get("GOOGLE_SHEET_ID", "1269070972")),
             ascend_group_url=os.environ.get("ASCEND_GROUP_URL", "").strip(),

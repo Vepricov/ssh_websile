@@ -1332,6 +1332,79 @@ class Storage:
             ).fetchall()
         return tuple(str(row["host"]) for row in rows)
 
+    def sheet_user_records(
+        self,
+    ) -> tuple[
+        tuple[Application | Profile, str, tuple[str, ...]], ...
+    ]:
+        with self._connect() as db:
+            user_ids = tuple(
+                int(row["telegram_user_id"])
+                for row in db.execute(
+                    "SELECT telegram_user_id FROM profiles ORDER BY telegram_user_id"
+                )
+            )
+        records = []
+        for telegram_user_id in user_ids:
+            profile = self.profile_for(telegram_user_id)
+            if profile is None:
+                continue
+            application = self.application_for(telegram_user_id)
+            registry = self.registry_match_for(telegram_user_id)
+            registered_services = () if registry is None else registry.servers
+            access_hosts = self.access_hosts_for(telegram_user_id)
+            services = tuple(dict.fromkeys((*registered_services, *access_hosts)))
+            if application is not None:
+                subject: Application | Profile = application
+            elif registry is not None:
+                subject = Application(
+                    telegram_user_id=telegram_user_id,
+                    telegram_username=profile.telegram_username,
+                    full_name=profile.full_name,
+                    server_username=registry.server_username,
+                    access_term=registry.access_term,
+                    recommender=profile.recommender,
+                    activity=registry.activity,
+                    servers=services,
+                )
+            else:
+                subject = profile
+            status = (
+                "Доступ выдан"
+                if access_hosts
+                else "Импортирован из таблицы"
+                if registered_services
+                else "Профиль заполнен"
+            )
+            records.append((subject, status, services))
+        return tuple(records)
+
+    def sheet_request_records(
+        self,
+    ) -> tuple[tuple[str, Application, str], ...]:
+        status_labels = {
+            "pending": "Ожидает одобрения",
+            "processing": "Обрабатывается",
+            "approved": "Доступ выдан",
+            "rejected": "Отклонена",
+            "failed": "Ошибка выдачи",
+        }
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT request_id, payload, status FROM pending_requests
+                ORDER BY created_at, request_id
+                """
+            ).fetchall()
+        return tuple(
+            (
+                str(row["request_id"]),
+                self._pending_application(str(row["payload"])),
+                status_labels.get(str(row["status"]), str(row["status"])),
+            )
+            for row in rows
+        )
+
     def credentials_for(self, telegram_user_id: int) -> list[ProvisionedAccess]:
         with self._connect() as db:
             rows = db.execute(
