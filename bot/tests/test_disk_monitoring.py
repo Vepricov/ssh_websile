@@ -166,7 +166,7 @@ def test_disk_alert_is_sent_to_admin_with_growth_top_and_cleanup(tmp_path) -> No
     storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
     gib = 1024**3
     alert = DiskAlert(
-        level="warning",
+        level="critical",
         sample=DiskUsageSample(
             host="brain_lab",
             filesystem_key="dev:42",
@@ -230,6 +230,48 @@ def test_disk_alert_is_sent_to_admin_with_growth_top_and_cleanup(tmp_path) -> No
     assert "До очистки: 10.0 GB" in text
     assert "После очистки: <b>18.0 GB</b>" in text
     assert "Системные журналы: −8.0 GB" in text
+
+
+def test_warning_disk_alert_is_not_sent_to_admin(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    gib = 1024**3
+    alert = DiskAlert(
+        level="warning",
+        sample=DiskUsageSample(
+            "brain_lab", "dev:42", ("/home",), 1000 * gib, 850 * gib,
+            150 * gib, 1000, 900, 100,
+        ),
+        growth_since_previous_bytes=0,
+        growth_since_day_bytes=0,
+        day_baseline_at=0,
+    )
+
+    class FakeScanner:
+        def top_home(self, _host):
+            return ()
+
+        def cleanup_root(self, _host):
+            return None
+
+    class FakeBot:
+        messages = []
+
+        async def send_message(self, *args, **kwargs):
+            self.messages.append((args, kwargs))
+
+    bot = FakeBot()
+    delivered = asyncio.run(
+        deliver_disk_alerts(
+            bot,
+            storage,
+            FakeScanner(),
+            (alert,),
+            admin_user_ids=frozenset({999}),
+        )
+    )
+
+    assert delivered == ()
+    assert bot.messages == []
 
 
 def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
@@ -347,6 +389,63 @@ def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
         == ()
     )
     assert bot.messages == []
+
+
+def test_warning_home_pressure_notifies_linked_owner_but_not_admin(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    gib = 1024**3
+    storage.save_application(
+        Application(
+            101, "alice_tg", "Alice Example", "alice", "бессрочно",
+            "Andrey Example", "Research", ("brain_lab",),
+        )
+    )
+    storage.save_access(
+        101,
+        ProvisionedAccess(
+            "brain_lab", "alice", "secret", "ssh alice@example", "", True
+        ),
+    )
+    storage.record_disk_sample(
+        DiskUsageSample(
+            "brain_lab", "dev:42", ("/home",), 1000 * gib, 900 * gib,
+            100 * gib, 1000, 900, 100,
+        )
+    )
+
+    class FakeScanner:
+        hosts = ("brain_lab",)
+
+        def top_home(self, _host):
+            return (
+                DiskDirectoryUsage("/home/alice", 700 * gib),
+                DiskDirectoryUsage("/home/bob", 600 * gib),
+            )
+
+    class FakeBot:
+        messages = []
+
+        async def send_message(self, chat_id, text, **kwargs):
+            self.messages.append((chat_id, text, kwargs))
+
+    bot = FakeBot()
+    delivered = asyncio.run(
+        deliver_disk_cleanup_requests(
+            bot,
+            storage,
+            FakeScanner(),
+            admin_user_ids=frozenset({999}),
+            now=200,
+            registry_lookup=lambda _username: RegistryMatch(
+                "bob_tg", "Bob Example", "bob", "бессрочно",
+                "Andrey Example", "Research", ("brain_lab",), 1,
+            ),
+        )
+    )
+
+    assert delivered == (("brain_lab", "alice"),)
+    assert [message[0] for message in bot.messages] == [101]
+    assert "осталось 10.0%" in bot.messages[0][1]
 
 
 def test_disk_cleanup_acknowledgement_is_owned_by_telegram_user(tmp_path) -> None:

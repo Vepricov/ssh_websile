@@ -24,6 +24,8 @@ HOME_NOTIFY_MIN_BYTES = 400 * 1024**3
 HOME_NOTIFY_MAX_USERS = 5
 HOME_NOTIFY_COOLDOWN_SECONDS = 86400
 HOME_CLEANED_MIN_BYTES = 50 * 1024**3
+HOME_NOTIFY_FREE_PERCENT = 15
+HOME_ADMIN_FREE_PERCENT = 5
 
 
 @dataclass(frozen=True)
@@ -473,6 +475,8 @@ async def deliver_disk_alerts(
         grouped.setdefault(alert.sample.host, []).append(alert)
     delivered = []
     for host, host_alerts in grouped.items():
+        if not any(alert.level == "critical" for alert in host_alerts):
+            continue
         top_home = await asyncio.to_thread(scanner.top_home, host)
         cleanup = None
         if any("/" in alert.sample.paths for alert in host_alerts):
@@ -574,7 +578,7 @@ async def deliver_disk_cleanup_requests(
             continue
         free_percent = 100 * sample.available_bytes / sample.total_bytes
         active = await asyncio.to_thread(storage.disk_cleanup_requests_for_host, host)
-        if free_percent > 5:
+        if free_percent > HOME_NOTIFY_FREE_PERCENT:
             for request in active:
                 await asyncio.to_thread(
                     storage.complete_disk_cleanup_request, request.token, now=now
@@ -623,6 +627,8 @@ async def deliver_disk_cleanup_requests(
                 host,
                 username,
             )
+            if telegram_user_id is None and free_percent > HOME_ADMIN_FREE_PERCENT:
+                continue
             request = await asyncio.to_thread(
                 storage.claim_disk_cleanup_request,
                 token=secrets.token_urlsafe(8),
@@ -669,7 +675,11 @@ async def deliver_disk_cleanup_requests(
                     )
 
             telegram_username = None
-            if not notification_delivered and registry_lookup is not None:
+            if (
+                not notification_delivered
+                and free_percent <= HOME_ADMIN_FREE_PERCENT
+                and registry_lookup is not None
+            ):
                 try:
                     registry = await asyncio.to_thread(registry_lookup, username)
                     if registry is not None and host in registry.servers:
@@ -678,7 +688,10 @@ async def deliver_disk_cleanup_requests(
                     LOGGER.exception(
                         "Could not resolve disk owner %s through registry", username
                     )
-            if not notification_delivered:
+            if (
+                not notification_delivered
+                and free_percent <= HOME_ADMIN_FREE_PERCENT
+            ):
                 admin_text = _admin_home_cleanup_text(
                     host,
                     username,
