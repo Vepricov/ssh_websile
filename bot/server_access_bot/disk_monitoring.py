@@ -2,6 +2,7 @@ import asyncio
 import html
 import json
 import logging
+import secrets
 import shlex
 import subprocess
 import time
@@ -9,13 +10,20 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from .domain import DiskUsageSample
-from .monitoring import PUBLIC_SERVER_NAMES
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from .domain import DiskUsageSample, RegistryMatch
+from .monitoring import PUBLIC_SERVER_NAMES, SERVER_LOCATIONS
 from .storage import Storage
 
 Runner = Callable[[str, tuple[str, ...]], tuple[int, str]]
+RegistryLookup = Callable[[str], RegistryMatch | None]
 HELPER = "/usr/local/sbin/hermes-disk-report"
 LOGGER = logging.getLogger(__name__)
+HOME_NOTIFY_MIN_BYTES = 400 * 1024**3
+HOME_NOTIFY_MAX_USERS = 5
+HOME_NOTIFY_COOLDOWN_SECONDS = 86400
+HOME_CLEANED_MIN_BYTES = 50 * 1024**3
 
 
 @dataclass(frozen=True)
@@ -150,7 +158,7 @@ class DiskScanner:
         if not isinstance(rows, list):
             return ()
         directories = []
-        for row in rows[:5]:
+        for row in rows[:10]:
             if not isinstance(row, dict):
                 return ()
             path = row.get("path")
@@ -486,6 +494,221 @@ async def deliver_disk_alerts(
     return tuple(delivered)
 
 
+def _home_cleanup_text(
+    host: str,
+    username: str,
+    size_bytes: int,
+    rank: int,
+    sample: DiskUsageSample,
+) -> str:
+    server_location = html.escape(SERVER_LOCATIONS.get(host, host))
+    safe_username = html.escape(username)
+    free_percent = (
+        100 * sample.available_bytes / sample.total_bytes
+        if sample.total_bytes
+        else 0
+    )
+    return (
+        "🧹 <b>Нужно освободить место</b>\n\n"
+        f"Привет! На <b>{server_location}</b> каталог "
+        f"<code>/home/{safe_username}</code> занимает "
+        f"<b>{_format_bytes(size_bytes)}</b>. Это {rank}-е место по объёму.\n\n"
+        f"В <code>/home</code> осталось {free_percent:.1f}% "
+        f"({_format_bytes(sample.available_bytes)}). "
+        "Пожалуйста, удали ненужные checkpoints, датасеты и кеши. "
+        "Когда закончишь, нажми «Почистил», и бот проверит следующий замер."
+    )
+
+
+def _admin_home_cleanup_text(
+    host: str,
+    username: str,
+    size_bytes: int,
+    rank: int,
+    sample: DiskUsageSample,
+    *,
+    telegram_username: str | None,
+    delivery_failed: bool,
+) -> str:
+    safe_username = html.escape(username)
+    lines = [
+        "⚠️ <b>Не удалось уведомить владельца каталога</b>",
+        f"Сервер: <b>{html.escape(PUBLIC_SERVER_NAMES.get(host, host))}</b>",
+        f"Unix username: <code>{safe_username}</code>",
+    ]
+    if telegram_username:
+        lines.append(f"Telegram: @{html.escape(telegram_username.lstrip('@'))}")
+    lines.extend(
+        [
+            "Причина: "
+            + (
+                "пользователь не принимает сообщения от бота."
+                if delivery_failed
+                else "Unix username ещё не связан с Telegram ID."
+            ),
+            "",
+            "<b>Готовое сообщение для пересылки</b>",
+            "<blockquote>"
+            + _home_cleanup_text(host, username, size_bytes, rank, sample)
+            + "</blockquote>",
+        ]
+    )
+    return "\n".join(lines)
+
+
+async def deliver_disk_cleanup_requests(
+    bot: object,
+    storage: Storage,
+    scanner: DiskScanner,
+    *,
+    admin_user_ids: frozenset[int],
+    now: int,
+    registry_lookup: RegistryLookup | None = None,
+) -> tuple[tuple[str, str], ...]:
+    delivered: list[tuple[str, str]] = []
+    for host in scanner.hosts:
+        sample = await asyncio.to_thread(
+            storage.latest_disk_sample_for_path, host, "/home"
+        )
+        if sample is None or sample.total_bytes <= 0:
+            continue
+        free_percent = 100 * sample.available_bytes / sample.total_bytes
+        active = await asyncio.to_thread(storage.disk_cleanup_requests_for_host, host)
+        if free_percent > 5:
+            for request in active:
+                await asyncio.to_thread(
+                    storage.complete_disk_cleanup_request, request.token, now=now
+                )
+            continue
+
+        top_home = await asyncio.to_thread(scanner.top_home, host)
+        if not top_home:
+            continue
+        top_five = tuple(top_home[:HOME_NOTIFY_MAX_USERS])
+        current_by_username = {
+            item.path.removeprefix("/home/"): (rank, item)
+            for rank, item in enumerate(top_home, start=1)
+        }
+        for request in active:
+            current = current_by_username.get(request.server_username)
+            cleaned = current is not None and (
+                request.initial_size_bytes - current[1].size_bytes
+                >= HOME_CLEANED_MIN_BYTES
+            )
+            if not cleaned:
+                continue
+            await asyncio.to_thread(
+                storage.complete_disk_cleanup_request, request.token, now=now
+            )
+            if request.status == "acknowledged" and request.telegram_user_id:
+                freed = request.initial_size_bytes - current[1].size_bytes
+                try:
+                    await bot.send_message(
+                        request.telegram_user_id,
+                        "✅ Спасибо, очистка подтверждена. "
+                        f"Освободилось не менее {_format_bytes(max(0, freed))}.",
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Could not send disk cleanup confirmation to %s",
+                        request.telegram_user_id,
+                    )
+
+        for rank, item in enumerate(top_five, start=1):
+            if item.size_bytes < HOME_NOTIFY_MIN_BYTES:
+                continue
+            username = item.path.removeprefix("/home/")
+            telegram_user_id = await asyncio.to_thread(
+                storage.telegram_user_id_for_host_server_username,
+                host,
+                username,
+            )
+            request = await asyncio.to_thread(
+                storage.claim_disk_cleanup_request,
+                token=secrets.token_urlsafe(8),
+                host=host,
+                server_username=username,
+                telegram_user_id=telegram_user_id,
+                size_bytes=item.size_bytes,
+                rank=rank,
+                now=now,
+                cooldown_seconds=HOME_NOTIFY_COOLDOWN_SECONDS,
+            )
+            if request is None:
+                continue
+            user_text = _home_cleanup_text(
+                host, username, item.size_bytes, rank, sample
+            )
+            delivery_failed = False
+            notification_delivered = False
+            if telegram_user_id is not None:
+                try:
+                    await bot.send_message(
+                        telegram_user_id,
+                        user_text,
+                        protect_content=True,
+                        reply_markup=InlineKeyboardMarkup(
+                            inline_keyboard=[
+                                [
+                                    InlineKeyboardButton(
+                                        text="✅ Почистил",
+                                        callback_data=(
+                                            f"disk:cleaned:{request.token}"
+                                        ),
+                                    )
+                                ]
+                            ]
+                        ),
+                    )
+                    notification_delivered = True
+                except Exception:
+                    delivery_failed = True
+                    LOGGER.exception(
+                        "Could not send disk cleanup request to Telegram user %s",
+                        telegram_user_id,
+                    )
+
+            telegram_username = None
+            if not notification_delivered and registry_lookup is not None:
+                try:
+                    registry = await asyncio.to_thread(registry_lookup, username)
+                    if registry is not None and host in registry.servers:
+                        telegram_username = registry.telegram_username
+                except Exception:
+                    LOGGER.exception(
+                        "Could not resolve disk owner %s through registry", username
+                    )
+            if not notification_delivered:
+                admin_text = _admin_home_cleanup_text(
+                    host,
+                    username,
+                    item.size_bytes,
+                    rank,
+                    sample,
+                    telegram_username=telegram_username,
+                    delivery_failed=delivery_failed,
+                )
+                for admin_user_id in admin_user_ids:
+                    try:
+                        await bot.send_message(admin_user_id, admin_text)
+                        notification_delivered = True
+                    except Exception:
+                        LOGGER.exception(
+                            "Could not send disk owner alert to admin %s",
+                            admin_user_id,
+                        )
+            if notification_delivered:
+                await asyncio.to_thread(
+                    storage.mark_disk_cleanup_notified, request.token, now=now
+                )
+                delivered.append((host, username))
+            else:
+                await asyncio.to_thread(
+                    storage.release_disk_cleanup_notification, request.token
+                )
+    return tuple(delivered)
+
+
 async def run_disk_monitor(
     bot: object,
     monitor: DiskMonitor,
@@ -493,6 +716,7 @@ async def run_disk_monitor(
     *,
     interval_seconds: int,
     admin_user_ids: frozenset[int],
+    registry_lookup: RegistryLookup | None = None,
 ) -> None:
     while True:
         started = time.monotonic()
@@ -506,6 +730,14 @@ async def run_disk_monitor(
                     alerts,
                     admin_user_ids=admin_user_ids,
                 )
+            await deliver_disk_cleanup_requests(
+                bot,
+                monitor.storage,
+                scanner,
+                admin_user_ids=admin_user_ids,
+                now=int(time.time()),
+                registry_lookup=registry_lookup,
+            )
         except Exception:
             LOGGER.exception("Disk monitor iteration failed")
         elapsed = time.monotonic() - started

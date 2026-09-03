@@ -147,6 +147,30 @@ def test_top_home_falls_back_to_completed_cache(monkeypatch, capsys) -> None:
     }
 
 
+def test_top_home_returns_ten_largest_directories(monkeypatch, capsys) -> None:
+    helper = load_helper()
+    rows = [
+        {"path": f"/home/user{index}", "size_bytes": index}
+        for index in range(12)
+    ]
+    monkeypatch.setattr(helper.os.path, "isdir", lambda path: True)
+    monkeypatch.setattr(
+        helper,
+        "run",
+        lambda command, timeout=30: subprocess.CompletedProcess(
+            command, 0, "ext4 /dev/sdb\n", ""
+        ),
+    )
+    monkeypatch.setattr(helper, "top_home_quota", lambda: rows)
+
+    helper.top_home()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert len(payload["directories"]) == 10
+    assert payload["directories"][0]["path"] == "/home/user11"
+    assert payload["directories"][-1]["path"] == "/home/user2"
+
+
 def test_home_scan_timer_is_low_priority_and_bounded() -> None:
     deploy = Path(__file__).parents[1] / "deploy"
     scanner = (deploy / "hermes-home-scan").read_text(encoding="utf-8")

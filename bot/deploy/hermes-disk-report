@@ -219,7 +219,7 @@ def top_home() -> None:
     if directories is None:
         directories = []
     directories.sort(key=lambda item: int(item["size_bytes"]), reverse=True)
-    print(json.dumps({"directories": directories[:5], "source": source_name}))
+    print(json.dumps({"directories": directories[:10], "source": source_name}))
 
 
 def available_bytes(path: str) -> int:

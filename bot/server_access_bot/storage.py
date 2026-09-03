@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .domain import (
     Application,
+    DiskCleanupRequest,
     DiskUsageSample,
     GpuIdleCandidate,
     GpuIdleIncident,
@@ -149,6 +150,20 @@ class Storage:
                     last_level TEXT NOT NULL,
                     last_notified_at INTEGER,
                     PRIMARY KEY (host, filesystem_key)
+                );
+                CREATE TABLE IF NOT EXISTS disk_cleanup_requests (
+                    token TEXT PRIMARY KEY,
+                    host TEXT NOT NULL,
+                    server_username TEXT NOT NULL,
+                    telegram_user_id INTEGER,
+                    initial_size_bytes INTEGER NOT NULL,
+                    last_size_bytes INTEGER NOT NULL,
+                    rank INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    last_notified_at INTEGER NOT NULL,
+                    notification_reserved_at INTEGER,
+                    acknowledged_at INTEGER,
+                    UNIQUE (host, server_username)
                 );
                 """
             )
@@ -377,6 +392,204 @@ class Storage:
                 (host, filesystem_key, level, last_notified_at),
             )
         return should_notify
+
+    def latest_disk_sample_for_path(
+        self, host: str, path: str
+    ) -> DiskUsageSample | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT * FROM disk_samples
+                WHERE host = ? AND paths LIKE ?
+                ORDER BY sampled_at DESC LIMIT 1
+                """,
+                (host, f'%"{path}"%'),
+            ).fetchone()
+        if row is None:
+            return None
+        sample = self._disk_sample_from_row(row)
+        return sample if path in sample.paths else None
+
+    @staticmethod
+    def _disk_cleanup_request_from_row(
+        row: sqlite3.Row,
+    ) -> DiskCleanupRequest:
+        return DiskCleanupRequest(
+            token=str(row["token"]),
+            host=str(row["host"]),
+            server_username=str(row["server_username"]),
+            telegram_user_id=(
+                None
+                if row["telegram_user_id"] is None
+                else int(row["telegram_user_id"])
+            ),
+            initial_size_bytes=int(row["initial_size_bytes"]),
+            last_size_bytes=int(row["last_size_bytes"]),
+            rank=int(row["rank"]),
+            status=str(row["status"]),
+            last_notified_at=int(row["last_notified_at"]),
+            acknowledged_at=(
+                None
+                if row["acknowledged_at"] is None
+                else int(row["acknowledged_at"])
+            ),
+        )
+
+    def claim_disk_cleanup_request(
+        self,
+        *,
+        token: str,
+        host: str,
+        server_username: str,
+        telegram_user_id: int | None,
+        size_bytes: int,
+        rank: int,
+        now: int,
+        cooldown_seconds: int,
+    ) -> DiskCleanupRequest | None:
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                """
+                SELECT * FROM disk_cleanup_requests
+                WHERE host = ? AND server_username = ?
+                """,
+                (host, server_username),
+            ).fetchone()
+            if (
+                row is not None
+                and row["notification_reserved_at"] is not None
+                and now - int(row["notification_reserved_at"]) < 600
+            ):
+                return None
+            if row is not None:
+                last_notified_at = int(row["last_notified_at"])
+                if (
+                    last_notified_at > 0
+                    and now - last_notified_at < cooldown_seconds
+                ):
+                    return None
+            if row is None:
+                db.execute(
+                    """
+                    INSERT INTO disk_cleanup_requests (
+                        token, host, server_username, telegram_user_id,
+                        initial_size_bytes, last_size_bytes, rank, status,
+                        last_notified_at, notification_reserved_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)
+                    """,
+                    (
+                        token,
+                        host,
+                        server_username,
+                        telegram_user_id,
+                        size_bytes,
+                        size_bytes,
+                        rank,
+                        now,
+                    ),
+                )
+                selected_token = token
+            else:
+                previous_token = str(row["token"])
+                selected_token = token
+                initial_size = (
+                    size_bytes
+                    if str(row["status"]) == "completed"
+                    else int(row["initial_size_bytes"])
+                )
+                db.execute(
+                    """
+                    UPDATE disk_cleanup_requests SET
+                        token = ?, telegram_user_id = ?, initial_size_bytes = ?,
+                        last_size_bytes = ?, rank = ?, status = 'pending',
+                        notification_reserved_at = ?, acknowledged_at = NULL
+                    WHERE token = ?
+                    """,
+                    (
+                        selected_token,
+                        telegram_user_id,
+                        initial_size,
+                        size_bytes,
+                        rank,
+                        now,
+                        previous_token,
+                    ),
+                )
+            selected = db.execute(
+                "SELECT * FROM disk_cleanup_requests WHERE token = ?",
+                (selected_token,),
+            ).fetchone()
+        return self._disk_cleanup_request_from_row(selected)
+
+    def mark_disk_cleanup_notified(self, token: str, *, now: int) -> bool:
+        with self._connect() as db:
+            updated = db.execute(
+                """
+                UPDATE disk_cleanup_requests
+                SET last_notified_at = ?, notification_reserved_at = NULL
+                WHERE token = ? AND notification_reserved_at IS NOT NULL
+                """,
+                (now, token),
+            )
+        return updated.rowcount == 1
+
+    def release_disk_cleanup_notification(self, token: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE disk_cleanup_requests
+                SET notification_reserved_at = NULL
+                WHERE token = ?
+                """,
+                (token,),
+            )
+
+    def disk_cleanup_requests_for_host(
+        self, host: str
+    ) -> tuple[DiskCleanupRequest, ...]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT * FROM disk_cleanup_requests
+                WHERE host = ? AND status != 'completed'
+                ORDER BY rank, server_username
+                """,
+                (host,),
+            ).fetchall()
+        return tuple(self._disk_cleanup_request_from_row(row) for row in rows)
+
+    def acknowledge_disk_cleanup_request(
+        self, token: str, telegram_user_id: int, *, now: int
+    ) -> DiskCleanupRequest | None:
+        with self._connect() as db:
+            updated = db.execute(
+                """
+                UPDATE disk_cleanup_requests
+                SET status = 'acknowledged', acknowledged_at = ?
+                WHERE token = ? AND telegram_user_id = ?
+                    AND status IN ('pending', 'acknowledged')
+                """,
+                (now, token, telegram_user_id),
+            )
+            if updated.rowcount != 1:
+                return None
+            row = db.execute(
+                "SELECT * FROM disk_cleanup_requests WHERE token = ?", (token,)
+            ).fetchone()
+        return self._disk_cleanup_request_from_row(row)
+
+    def complete_disk_cleanup_request(self, token: str, *, now: int) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE disk_cleanup_requests SET
+                    status = 'completed', last_notified_at = ?,
+                    notification_reserved_at = NULL
+                WHERE token = ?
+                """,
+                (now, token),
+            )
 
     @staticmethod
     def _gpu_process_action_from_row(row: sqlite3.Row) -> GpuProcessAction:
@@ -756,6 +969,31 @@ class Storage:
                 LIMIT 2
                 """,
                 (server_username,),
+            ).fetchall()
+        if len(rows) != 1:
+            return None
+        return int(rows[0]["telegram_user_id"])
+
+    def telegram_user_id_for_host_server_username(
+        self, host: str, server_username: str
+    ) -> int | None:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT DISTINCT telegram_user_id FROM (
+                    SELECT u.telegram_user_id
+                    FROM users u
+                    JOIN accesses a USING (telegram_user_id)
+                    WHERE u.server_username = ? AND a.host = ?
+                    UNION ALL
+                    SELECT r.telegram_user_id
+                    FROM registry_users r
+                    JOIN registry_services s USING (telegram_user_id)
+                    WHERE r.server_username = ? AND s.host = ?
+                )
+                LIMIT 2
+                """,
+                (server_username, host, server_username, host),
             ).fetchall()
         if len(rows) != 1:
             return None

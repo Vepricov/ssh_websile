@@ -1383,6 +1383,30 @@ def build_router(
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
 
+    @router.callback_query(F.data.startswith("disk:cleaned:"))
+    async def acknowledge_disk_cleanup(callback: CallbackQuery) -> None:
+        token = (callback.data or "").rsplit(":", 1)[-1]
+        request = await asyncio.to_thread(
+            service.storage.acknowledge_disk_cleanup_request,
+            token,
+            callback.from_user.id,
+            now=int(time.time()),
+        )
+        if request is None:
+            await callback.answer(
+                "Эта кнопка относится к другому пользователю или уже неактуальна.",
+                show_alert=True,
+            )
+            return
+        await callback.answer("Принято")
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer(
+                "✅ Принял. Проверю объём по следующему замеру. "
+                "Если каталог всё ещё останется среди самых больших, "
+                "напомню не раньше чем через сутки."
+            )
+
     @router.message(Command("servers"))
     @router.message(F.text.in_({"Мои серверы", "🔐 Мои серверы"}))
     async def my_servers(message: Message, state: FSMContext) -> None:
@@ -1709,6 +1733,7 @@ async def run(settings: Settings) -> None:
                 disk_scanner,
                 interval_seconds=settings.disk_monitor_interval_seconds,
                 admin_user_ids=settings.admin_user_ids,
+                registry_lookup=sheets.find_registry_user_by_server_username,
             )
         )
     await bot.set_my_commands(

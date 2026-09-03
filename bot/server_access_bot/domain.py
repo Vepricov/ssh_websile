@@ -114,3 +114,17 @@ class DiskUsageSample:
     total_inodes: int
     free_inodes: int
     sampled_at: int
+
+
+@dataclass(frozen=True)
+class DiskCleanupRequest:
+    token: str
+    host: str
+    server_username: str
+    telegram_user_id: int | None
+    initial_size_bytes: int
+    last_size_bytes: int
+    rank: int
+    status: str
+    last_notified_at: int
+    acknowledged_at: int | None = None

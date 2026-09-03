@@ -11,9 +11,16 @@ from server_access_bot.disk_monitoring import (
     DiskMonitor,
     DiskScanner,
     deliver_disk_alerts,
+    deliver_disk_cleanup_requests,
     format_disk_status,
 )
-from server_access_bot.domain import DiskUsageSample, ServerChatBinding
+from server_access_bot.domain import (
+    Application,
+    DiskUsageSample,
+    ProvisionedAccess,
+    RegistryMatch,
+    ServerChatBinding,
+)
 from server_access_bot.storage import Storage
 
 
@@ -67,6 +74,22 @@ def test_disk_scanner_parses_filesystems_and_marks_unreachable_host() -> None:
     assert statuses[0].filesystems[0].used_bytes == 900
     assert statuses[1].host == "vv_h200"
     assert statuses[1].reachable is False
+
+
+def test_disk_scanner_keeps_top_ten_home_directories() -> None:
+    report = json.dumps(
+        {
+            "directories": [
+                {"path": f"/home/user{index}", "size_bytes": 20 - index}
+                for index in range(12)
+            ]
+        }
+    )
+
+    scanner = DiskScanner(("brain_lab",), runner=lambda _host, _command: (0, report))
+
+    assert len(scanner.top_home("brain_lab")) == 10
+    assert scanner.top_home("brain_lab")[-1].path == "/home/user9"
 
 
 def test_disk_scanner_parses_allowlisted_cleanup_report() -> None:
@@ -207,6 +230,317 @@ def test_disk_alert_is_sent_to_admin_with_growth_top_and_cleanup(tmp_path) -> No
     assert "До очистки: 10.0 GB" in text
     assert "После очистки: <b>18.0 GB</b>" in text
     assert "Системные журналы: −8.0 GB" in text
+
+
+def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
+    tmp_path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    gib = 1024**3
+    storage.save_application(
+        Application(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            full_name="Alice Example",
+            server_username="alice",
+            access_term="бессрочно",
+            recommender="Andrey Example",
+            activity="Research",
+            servers=("brain_lab",),
+        )
+    )
+    storage.save_access(
+        101,
+        ProvisionedAccess(
+            host="brain_lab",
+            username="alice",
+            password="secret",
+            connection="ssh alice@example",
+            group_url="",
+            created=True,
+        ),
+    )
+    storage.record_disk_sample(
+        DiskUsageSample(
+            host="brain_lab",
+            filesystem_key="dev:42",
+            paths=("/home",),
+            total_bytes=10_000 * gib,
+            used_bytes=9_600 * gib,
+            available_bytes=400 * gib,
+            total_inodes=1000,
+            free_inodes=900,
+            sampled_at=100,
+        )
+    )
+
+    class FakeScanner:
+        hosts = ("brain_lab",)
+
+        def top_home(self, host):
+            assert host == "brain_lab"
+            return (
+                DiskDirectoryUsage("/home/alice", 700 * gib),
+                DiskDirectoryUsage("/home/bob", 600 * gib),
+                DiskDirectoryUsage("/home/small", 399 * gib),
+            )
+
+    class FakeBot:
+        def __init__(self):
+            self.messages = []
+
+        async def send_message(self, chat_id, text, **kwargs):
+            self.messages.append((chat_id, text, kwargs))
+
+    def registry_lookup(username):
+        assert username == "bob"
+        return RegistryMatch(
+            telegram_username="bob_tg",
+            full_name="Bob Example",
+            server_username="bob",
+            access_term="бессрочно",
+            recommender="Andrey Example",
+            activity="Research",
+            servers=("brain_lab",),
+            source_row_count=1,
+        )
+
+    bot = FakeBot()
+    delivered = asyncio.run(
+        deliver_disk_cleanup_requests(
+            bot,
+            storage,
+            FakeScanner(),
+            admin_user_ids=frozenset({999}),
+            now=200,
+            registry_lookup=registry_lookup,
+        )
+    )
+
+    assert delivered == (("brain_lab", "alice"), ("brain_lab", "bob"))
+    user_message = next(item for item in bot.messages if item[0] == 101)
+    assert "700.0 GB" in user_message[1]
+    assert "осталось 4.0%" in user_message[1]
+    assert user_message[2]["protect_content"] is True
+    assert (
+        user_message[2]["reply_markup"].inline_keyboard[0][0].callback_data
+        .startswith("disk:cleaned:")
+    )
+    admin_message = next(item for item in bot.messages if item[0] == 999)
+    assert "Telegram: @bob_tg" in admin_message[1]
+    assert "Готовое сообщение" in admin_message[1]
+    assert "/home/bob" in admin_message[1]
+    assert all("small" not in item[1] for item in bot.messages)
+
+    bot.messages.clear()
+    assert (
+        asyncio.run(
+            deliver_disk_cleanup_requests(
+                bot,
+                storage,
+                FakeScanner(),
+                admin_user_ids=frozenset({999}),
+                now=200 + 86399,
+                registry_lookup=registry_lookup,
+            )
+        )
+        == ()
+    )
+    assert bot.messages == []
+
+
+def test_disk_cleanup_acknowledgement_is_owned_by_telegram_user(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    request = storage.claim_disk_cleanup_request(
+        token="token",
+        host="brain_lab",
+        server_username="alice",
+        telegram_user_id=101,
+        size_bytes=700 * 1024**3,
+        rank=1,
+        now=100,
+        cooldown_seconds=86400,
+    )
+
+    assert request is not None
+    assert storage.acknowledge_disk_cleanup_request("token", 999, now=110) is None
+    acknowledged = storage.acknowledge_disk_cleanup_request("token", 101, now=110)
+    assert acknowledged is not None
+    assert acknowledged.status == "acknowledged"
+
+
+def test_reopened_disk_cleanup_request_rotates_callback_token(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    first = storage.claim_disk_cleanup_request(
+        token="old-token",
+        host="brain_lab",
+        server_username="alice",
+        telegram_user_id=101,
+        size_bytes=700 * 1024**3,
+        rank=1,
+        now=100,
+        cooldown_seconds=86400,
+    )
+    assert first is not None
+    storage.mark_disk_cleanup_notified(first.token, now=100)
+    storage.complete_disk_cleanup_request(first.token, now=200)
+
+    reopened = storage.claim_disk_cleanup_request(
+        token="new-token",
+        host="brain_lab",
+        server_username="alice",
+        telegram_user_id=101,
+        size_bytes=650 * 1024**3,
+        rank=2,
+        now=200 + 86400,
+        cooldown_seconds=86400,
+    )
+
+    assert reopened is not None
+    assert reopened.token == "new-token"
+    assert storage.acknowledge_disk_cleanup_request("old-token", 101, now=200) is None
+    assert storage.acknowledge_disk_cleanup_request("new-token", 101, now=200)
+
+
+def test_failed_disk_cleanup_delivery_is_retried_without_daily_wait(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    gib = 1024**3
+    storage.save_application(
+        Application(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            full_name="Alice Example",
+            server_username="alice",
+            access_term="бессрочно",
+            recommender="Andrey Example",
+            activity="Research",
+            servers=("brain_lab",),
+        )
+    )
+    storage.save_access(
+        101,
+        ProvisionedAccess(
+            host="brain_lab",
+            username="alice",
+            password="secret",
+            connection="ssh alice@example",
+            group_url="",
+            created=True,
+        ),
+    )
+    storage.record_disk_sample(
+        DiskUsageSample(
+            "brain_lab", "dev:42", ("/home",), 1000 * gib, 960 * gib,
+            40 * gib, 1000, 900, 100,
+        )
+    )
+
+    class FakeScanner:
+        hosts = ("brain_lab",)
+
+        def top_home(self, _host):
+            return (DiskDirectoryUsage("/home/alice", 700 * gib),)
+
+    class FailingBot:
+        attempts = 0
+
+        async def send_message(self, *_args, **_kwargs):
+            self.attempts += 1
+            raise RuntimeError("Telegram unavailable")
+
+    bot = FailingBot()
+    for now in (200, 500):
+        assert asyncio.run(
+            deliver_disk_cleanup_requests(
+                bot,
+                storage,
+                FakeScanner(),
+                admin_user_ids=frozenset(),
+                now=now,
+            )
+        ) == ()
+
+    assert bot.attempts == 2
+
+
+def test_moving_to_sixth_place_without_freeing_space_is_not_success(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    gib = 1024**3
+    storage.record_disk_sample(
+        DiskUsageSample(
+            "brain_lab", "dev:42", ("/home",), 10_000 * gib, 9_600 * gib,
+            400 * gib, 1000, 900, 100,
+        )
+    )
+    request = storage.claim_disk_cleanup_request(
+        token="token",
+        host="brain_lab",
+        server_username="alice",
+        telegram_user_id=101,
+        size_bytes=700 * gib,
+        rank=5,
+        now=100,
+        cooldown_seconds=86400,
+    )
+    assert request is not None
+    storage.mark_disk_cleanup_notified(request.token, now=100)
+    assert storage.acknowledge_disk_cleanup_request("token", 101, now=110)
+
+    class FakeScanner:
+        hosts = ("brain_lab",)
+
+        def top_home(self, _host):
+            return tuple(
+                DiskDirectoryUsage(f"/home/user{index}", (800 - index) * gib)
+                for index in range(5)
+            ) + (DiskDirectoryUsage("/home/alice", 700 * gib),)
+
+    class FakeBot:
+        messages = []
+
+        async def send_message(self, *args, **kwargs):
+            self.messages.append((args, kwargs))
+
+    bot = FakeBot()
+    asyncio.run(
+        deliver_disk_cleanup_requests(
+            bot,
+            storage,
+            FakeScanner(),
+            admin_user_ids=frozenset(),
+            now=200,
+        )
+    )
+
+    active = storage.disk_cleanup_requests_for_host("brain_lab")
+    alice = next(item for item in active if item.server_username == "alice")
+    assert alice.status == "acknowledged"
+    assert bot.messages == []
+
+
+def test_disk_owner_lookup_requires_access_to_the_same_host(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    match = RegistryMatch(
+        telegram_username="alice_tg",
+        full_name="Alice Example",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Andrey Example",
+        activity="Research",
+        servers=("brain_lab",),
+        source_row_count=1,
+        telegram_user_id=101,
+    )
+    storage.save_registry_match(101, "alice_tg", match)
+
+    assert (
+        storage.telegram_user_id_for_host_server_username("brain_lab", "alice")
+        == 101
+    )
+    assert (
+        storage.telegram_user_id_for_host_server_username("vv_h200", "alice")
+        is None
+    )
 
 
 def test_disk_status_lists_free_space_and_unreachable_servers() -> None:
