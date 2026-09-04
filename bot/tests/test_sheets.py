@@ -121,6 +121,33 @@ def test_bot_registry_is_authoritative_for_granted_servers() -> None:
     assert match.servers == ("brain_lab", "vv_h200")
 
 
+@pytest.mark.parametrize("label", ["Alibaba", "Alibaba Ascend"])
+def test_bot_registry_accepts_current_and_legacy_alibaba_labels(label) -> None:
+    rows = [
+        list(BOT_USER_HEADERS),
+        [
+            "101", "@alice_tg", "Alice Smith", "alice", "бессрочно",
+            "Bob Jones", "NPU experiments", label, "Доступ выдан",
+            "30-08-2026 12:00:00 UTC",
+        ],
+    ]
+
+    match = bot_registry_match_from_rows(rows, telegram_username="alice_tg")
+
+    assert match is not None
+    assert match.servers == ("alibaba_ascend",)
+
+
+@pytest.mark.parametrize("label", ["Alibaba", "Alibaba Ascend"])
+def test_legacy_registry_accepts_current_and_legacy_alibaba_labels(label) -> None:
+    rows = [list(FORM_HEADERS), registry_row("Alice Smith", "alice", "alice_tg", label)]
+
+    match = registry_match_from_sheet_values(rows, "alice_tg")
+
+    assert match is not None
+    assert match.servers == ("alibaba_ascend",)
+
+
 def test_bot_registry_rejects_duplicate_telegram_identity() -> None:
     rows = [
         list(BOT_USER_HEADERS),
@@ -182,13 +209,13 @@ def test_ascend_has_a_distinct_sheet_label() -> None:
         server_username="alice",
         access_term="бессрочно",
         recommender="Bob Jones",
-        activity="Ascend experiments",
+        activity="Alibaba NPU experiments",
         servers=("alibaba_ascend",),
     )
 
     values = bot_user_values(application, "Доступ выдан", ("alibaba_ascend",))
 
-    assert values[7] == "Alibaba Ascend"
+    assert values[7] == "Alibaba"
 
 
 def test_each_request_has_a_separate_status_row() -> None:
@@ -199,7 +226,7 @@ def test_each_request_has_a_separate_status_row() -> None:
         server_username="alice",
         access_term="бессрочно",
         recommender="Bob Jones",
-        activity="Ascend experiments",
+        activity="Alibaba NPU experiments",
         servers=("alibaba_ascend",),
     )
 
@@ -212,7 +239,7 @@ def test_each_request_has_a_separate_status_row() -> None:
 
     assert len(values) == len(BOT_REQUEST_HEADERS)
     assert values[0] == "request-1"
-    assert values[5] == "Alibaba Ascend"
+    assert values[5] == "Alibaba"
     assert values[6] == "Ожидает одобрения"
 
 

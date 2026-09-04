@@ -172,13 +172,13 @@ def test_ascend_access_is_shown_with_group_and_without_password() -> None:
     text = server_dashboard_text([access])
     keyboard = server_dashboard_keyboard([access])
 
-    assert "✅ <b>Alibaba Ascend</b>" in text
+    assert "✅ <b>Alibaba</b>" in text
     assert "Ник из анкеты (для учёта): <code>alice</code>" in text
-    assert "Фактический логин на Ascend может отличаться" in text
+    assert "Фактический логин может отличаться" in text
     assert "ssh veprikov@10.0.117.196" in text
     assert "@fckand1" not in text
     assert 'href="https://t.me/+test-only"' in text
-    assert "Пароль" not in text.split("<b>Alibaba Ascend</b>", 1)[1]
+    assert "Пароль" not in text.split("<b>Alibaba</b>", 1)[1]
     assert keyboard is not None
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert "servers:add:alibaba_ascend" not in callbacks
@@ -197,7 +197,7 @@ def test_ascend_dashboard_hides_legacy_external_admin_connection() -> None:
     text = server_dashboard_text([access])
 
     assert "@fckand1" not in text
-    assert "Подключение:" not in text.split("<b>Alibaba Ascend</b>", 1)[1]
+    assert "Подключение:" not in text.split("<b>Alibaba</b>", 1)[1]
 
 
 def test_registry_dashboard_does_not_show_invalid_legacy_unix_name() -> None:
@@ -272,16 +272,18 @@ def test_admin_approval_is_bound_to_a_durable_request() -> None:
 
 
 def test_ascend_admin_keyboard_opens_prefilled_chat_and_keeps_durable_actions() -> None:
-    keyboard = ascend_admin_keyboard("request-123", "Александр Мясников")
+    keyboard = ascend_admin_keyboard(
+        "request-123", "Александр Мясников", "xandi281", 101
+    )
 
     contact = keyboard.inline_keyboard[0][0]
-    assert contact.text == "✉️ Передать ФИО внешнему администратору"
+    assert contact.text == "✉️ Передать заявку внешнему администратору"
     assert contact.url == (
         "https://t.me/fckand1?text="
         "%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82%21%20%D0%94%D0%BE%D0%B1%D0%B0%D0%B2%D1%8C%2C%20"
         "%D0%BF%D0%BE%D0%B6%D0%B0%D0%BB%D1%83%D0%B9%D1%81%D1%82%D0%B0%2C%20%D0%BD%D0%B0%20"
-        "Alibaba%20Ascend%3A%20%D0%90%D0%BB%D0%B5%D0%BA%D1%81%D0%B0%D0%BD%D0%B4%D1%80%20"
-        "%D0%9C%D1%8F%D1%81%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2"
+        "Alibaba.%0A%D0%A4%D0%98%D0%9E%3A%20%D0%90%D0%BB%D0%B5%D0%BA%D1%81%D0%B0%D0%BD%D0%B4%D1%80%20"
+        "%D0%9C%D1%8F%D1%81%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2%0ATelegram%3A%20%40xandi281"
     )
     assert keyboard.inline_keyboard[1][0].callback_data == (
         "admin:ascend:grant:request-123"
@@ -289,6 +291,12 @@ def test_ascend_admin_keyboard_opens_prefilled_chat_and_keeps_durable_actions() 
     assert keyboard.inline_keyboard[1][1].callback_data == (
         "admin:reject:request-123"
     )
+
+
+def test_ascend_admin_keyboard_uses_numeric_id_without_public_username() -> None:
+    keyboard = ascend_admin_keyboard("request-123", "Alice Smith", None, 101)
+
+    assert "Telegram%20ID%3A%20101" in keyboard.inline_keyboard[0][0].url
 
 
 def test_mlsub_always_requires_separate_admin_approval() -> None:
@@ -318,7 +326,7 @@ def test_ascend_always_requires_manual_admin_flow() -> None:
             "alice_tg",
             "alice",
             "бессрочно",
-            "Ascend experiments",
+            "Alibaba NPU experiments",
             ("alibaba_ascend",),
         ),
     )
@@ -481,15 +489,15 @@ def test_available_server_message_is_complete() -> None:
     assert "отдельный вычислительный сервис" in catalog
     assert "уже выданный доступ к BrainLab" in catalog
     assert "отдельного одобрения администратора" in catalog
-    assert "Alibaba Ascend" in catalog
+    assert "Alibaba" in catalog
     assert "аккаунт создаётся вручную" in catalog
-    assert "Логин на Ascend выдаётся отдельно" in catalog
+    assert "Логин выдаётся отдельно" in catalog
     assert "@fckand1" not in catalog
     assert '<a href="https://t.me/aloeme">@aloeme</a>' in catalog
     assert BOT_DEFAULTS.link_preview_is_disabled is True
     labels = [button.text for row in keyboard.inline_keyboard for button in row]
     assert "☁️ mlsub / Cloud.ru" in labels
-    assert "🧠 Alibaba Ascend" in labels
+    assert "🧠 Alibaba" in labels
 
 
 def test_onboarding_explains_the_main_user_flow() -> None:

@@ -576,9 +576,9 @@ def test_alibaba_ascend_is_valid_only_as_a_separate_request(tmp_path: Path) -> N
             Application(servers=("alibaba_ascend", "brain_lab"), **base)
         )
     except ValidationError as error:
-        assert "Ascend оформляется отдельной заявкой" in str(error)
+        assert "Alibaba оформляется отдельной заявкой" in str(error)
     else:
-        raise AssertionError("Ascend was combined with another server request")
+        raise AssertionError("Alibaba was combined with another server request")
 
 
 def test_granting_ascend_records_access_without_provisioning(tmp_path: Path) -> None:
@@ -596,7 +596,7 @@ def test_granting_ascend_records_access_without_provisioning(tmp_path: Path) -> 
         server_username="alice",
         access_term="бессрочно",
         recommender="Andrey Example",
-        activity="Ascend experiments",
+        activity="Alibaba NPU experiments",
         servers=("alibaba_ascend",),
     )
 
@@ -613,7 +613,7 @@ def test_granting_ascend_records_access_without_provisioning(tmp_path: Path) -> 
     except ValidationError as error:
         assert "уже отмечен как выданный" in str(error)
     else:
-        raise AssertionError("duplicate Ascend access was accepted")
+        raise AssertionError("duplicate Alibaba access was accepted")
 
 
 def test_existing_user_cannot_switch_unix_username(tmp_path: Path) -> None:

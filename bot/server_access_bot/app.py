@@ -96,7 +96,7 @@ SERVER_NAMES = {
 }
 SERVICE_NAMES = {
     "mlsub": "mlsub / Cloud.ru",
-    "alibaba_ascend": "Alibaba Ascend",
+    "alibaba_ascend": "Alibaba",
 }
 ALL_SERVICE_NAMES = {
     **SERVER_NAMES,
@@ -249,13 +249,27 @@ def admin_approval_keyboard(request_id: str) -> InlineKeyboardMarkup:
     )
 
 
-def ascend_admin_keyboard(request_id: str, full_name: str) -> InlineKeyboardMarkup:
-    draft = f"Привет! Добавь, пожалуйста, на Alibaba Ascend: {full_name}"
+def ascend_admin_keyboard(
+    request_id: str,
+    full_name: str,
+    telegram_username: str | None,
+    telegram_user_id: int,
+) -> InlineKeyboardMarkup:
+    telegram_identity = (
+        f"Telegram: @{telegram_username.lstrip('@')}"
+        if telegram_username
+        else f"Telegram ID: {telegram_user_id}"
+    )
+    draft = (
+        "Привет! Добавь, пожалуйста, на Alibaba.\n"
+        f"ФИО: {full_name}\n"
+        f"{telegram_identity}"
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✉️ Передать ФИО внешнему администратору",
+                    text="✉️ Передать заявку внешнему администратору",
                     url=f"https://t.me/fckand1?text={quote(draft, safe='')}",
                 )
             ],
@@ -501,7 +515,7 @@ async def deliver_ascend_reminders(
     for request_id, application in requests:
         sent = False
         text = (
-            "⏰ <b>Доступ на Ascend уже выдали?</b>\n\n"
+            "⏰ <b>Доступ на Alibaba уже выдали?</b>\n\n"
             + application_summary(application_data(application))
             + "\n\nЕсли доступ ещё делают, ничего нажимать не нужно. "
             "Бот напомнит снова через сутки."
@@ -512,13 +526,16 @@ async def deliver_ascend_reminders(
                     admin_user_id,
                     text,
                     reply_markup=ascend_admin_keyboard(
-                        request_id, application.full_name
+                        request_id,
+                        application.full_name,
+                        application.telegram_username,
+                        application.telegram_user_id,
                     ),
                 )
                 sent = True
             except Exception:
                 LOGGER.exception(
-                    "Could not send Ascend reminder %s to admin %s",
+                    "Could not send Alibaba reminder %s to admin %s",
                     request_id,
                     admin_user_id,
                 )
@@ -551,7 +568,7 @@ async def run_ascend_reminder_loop(
                 now=int(time.time()),
             )
         except Exception:
-            LOGGER.exception("Ascend reminder loop failed")
+            LOGGER.exception("Alibaba reminder loop failed")
         await asyncio.sleep(check_interval_seconds)
 
 
@@ -598,9 +615,9 @@ def available_servers_text() -> str:
         "только после отдельного одобрения администратора.\n\n"
         "<b>Яндекс-сервер</b>\n"
         'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.\n\n'
-        "<b>Alibaba Ascend</b>\n"
+        "<b>Alibaba</b>\n"
         "Пилотный внешний ресурс. Заявка отправляется через этого бота, "
-        "аккаунт создаётся вручную. Логин на Ascend выдаётся отдельно и может "
+        "аккаунт создаётся вручную. Логин выдаётся отдельно и может "
         "не совпадать с Unix-ником из анкеты. После выдачи администратор "
         "подтвердит доступ в боте."
     )
@@ -656,7 +673,7 @@ def available_servers_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="🧠 Alibaba Ascend",
+                    text="🧠 Alibaba",
                     callback_data="catalog:ascend",
                 )
             ],
@@ -794,9 +811,9 @@ def server_dashboard_text(
     ascend = by_host.get("alibaba_ascend")
     if ascend is not None:
         lines = [
-            "✅ <b>Alibaba Ascend</b>",
+            "✅ <b>Alibaba</b>",
             f"Ник из анкеты (для учёта): <code>{html.escape(ascend.username)}</code>",
-            "Фактический логин на Ascend может отличаться.",
+            "Фактический логин может отличаться.",
         ]
         if (
             ascend.connection
@@ -811,15 +828,15 @@ def server_dashboard_text(
         sections.append("\n".join(lines))
     elif "alibaba_ascend" in registered:
         sections.append(
-            "✅ <b>Alibaba Ascend</b>\n"
+            "✅ <b>Alibaba</b>\n"
             "Доступ найден в таблице. Фактический логин выдаётся отдельно "
             "и может не совпадать с ником из анкеты."
         )
     else:
         sections.append(
-            "○ <b>Alibaba Ascend</b>\n"
+            "○ <b>Alibaba</b>\n"
             "Отправьте отдельную заявку через бота. Аккаунт создаётся вручную; "
-            "логин на Ascend может не совпадать с ником из анкеты."
+            "логин может не совпадать с ником из анкеты."
         )
     sections.append(
         "☁️ <b>Яндекс-сервер</b>\n"
@@ -1169,7 +1186,7 @@ def build_router(
         is_ascend = application.servers == ("alibaba_ascend",)
         if is_ascend and not service.ascend_group_url:
             await message.answer(
-                "Заявки на Alibaba Ascend временно недоступны: "
+                "Заявки на Alibaba временно недоступны: "
                 "администратор ещё не настроил ссылку на группу.",
                 reply_markup=await personalized_main_menu(message.from_user.id),
             )
@@ -1197,7 +1214,7 @@ def build_router(
                 await bot.send_message(
                     admin_id,
                     (
-                        "<b>Заявка на Alibaba Ascend</b>\n\n"
+                        "<b>Заявка на Alibaba</b>\n\n"
                         if is_ascend
                         else (
                             "<b>Отдельная заявка на mlsub</b>\n\n"
@@ -1207,7 +1224,12 @@ def build_router(
                     )
                     + application_summary(application_data(application)),
                     reply_markup=(
-                        ascend_admin_keyboard(request_id, application.full_name)
+                        ascend_admin_keyboard(
+                            request_id,
+                            application.full_name,
+                            application.telegram_username,
+                            application.telegram_user_id,
+                        )
                         if is_ascend
                         else admin_approval_keyboard(request_id)
                     ),
@@ -1216,7 +1238,7 @@ def build_router(
                 LOGGER.exception("Could not notify access admin %s", admin_id)
         if is_ascend:
             await message.answer(
-                "Заявка на Alibaba Ascend отправлена. Доступ выдаётся вручную, "
+                "Заявка на Alibaba отправлена. Доступ выдаётся вручную, "
                 "поэтому это может занять день или больше. Бот напишет, когда "
                 "администратор подтвердит выдачу.\n\n"
                 f'<a href="{html.escape(service.ascend_group_url, quote=True)}">'
@@ -1374,7 +1396,7 @@ def build_router(
         try:
             access = await asyncio.to_thread(service.grant_external_access, application)
         except Exception:
-            LOGGER.exception("Could not confirm Ascend access request %s", request_id)
+            LOGGER.exception("Could not confirm Alibaba access request %s", request_id)
             await asyncio.to_thread(
                 service.storage.release_pending_request_claim, request_id
             )
@@ -1390,7 +1412,7 @@ def build_router(
             await callback.message.edit_reply_markup(reply_markup=None)
         await bot.send_message(
             application.telegram_user_id,
-            "✅ <b>Доступ к Alibaba Ascend выдан</b>\n\n"
+            "✅ <b>Доступ к Alibaba выдан</b>\n\n"
             "Он уже отображается в «Мои серверы».\n"
             f'<a href="{html.escape(access.group_url, quote=True)}">'
             "Вступить в общую Telegram-группу</a>",
@@ -1398,7 +1420,7 @@ def build_router(
         )
         await callback.answer("Доступ отмечен как выданный")
         if callback.message:
-            await callback.message.answer("Доступ к Alibaba Ascend подтверждён.")
+            await callback.message.answer("Доступ к Alibaba подтверждён.")
 
     @router.callback_query(F.data.startswith("admin:approve:"))
     async def approve_new_user(callback: CallbackQuery, bot: Bot) -> None:
@@ -1812,10 +1834,10 @@ def build_router(
         await callback.answer()
         if callback.message:
             await callback.message.answer(
-                "<b>Alibaba Ascend</b>\n\n"
+                "<b>Alibaba</b>\n\n"
                 "Пилотный внешний ресурс. Заявка оформляется через бота, "
                 "а аккаунт создаётся вручную. Это может занять день или больше. "
-                "Логин на Ascend выдаётся отдельно и может не совпадать с "
+                "Логин выдаётся отдельно и может не совпадать с "
                 "Unix-ником из анкеты; после выдачи администратор подтвердит "
                 "доступ в боте.",
                 reply_markup=await personalized_server_request_menu(

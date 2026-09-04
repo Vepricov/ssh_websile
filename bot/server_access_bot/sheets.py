@@ -56,7 +56,7 @@ SERVER_LABELS = {
     "brain_lab": "Новый сервер (BrainLab) -- x4 A100 80гб",
     "vv_h200": "H200 (VB) - x8 H200 140гб",
     "mlsub": "mlsub / Cloud.ru — отдельный сервис через BrainLab",
-    "alibaba_ascend": "Alibaba Ascend — внешняя ручная выдача",
+    "alibaba_ascend": "Alibaba — внешняя ручная выдача",
 }
 REGISTRY_SERVER_LABELS = {
     "shkodnik_opt": "Старый сервер (MIPT)",
@@ -64,7 +64,7 @@ REGISTRY_SERVER_LABELS = {
     "vv_h200": "H200",
     "yandex": "Яндекс-сервер",
     "mlsub": "mlsub / Cloud.ru",
-    "alibaba_ascend": "Alibaba Ascend",
+    "alibaba_ascend": "Alibaba",
 }
 REGISTRY_SERVERS = (
     ("shkodnik_opt", ("Старый сервер (MIPT)", "Старый (mipt)")),
@@ -72,7 +72,7 @@ REGISTRY_SERVERS = (
     ("vv_h200", ("H200",)),
     ("yandex", ("Яндекс",)),
     ("mlsub", ("mlsub / Cloud.ru",)),
-    ("alibaba_ascend", ("Alibaba Ascend",)),
+    ("alibaba_ascend", ("Alibaba Ascend", "Alibaba")),
 )
 SERVER_USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
