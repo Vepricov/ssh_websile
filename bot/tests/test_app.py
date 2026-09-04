@@ -177,6 +177,9 @@ def test_ascend_access_is_shown_with_group_and_without_password() -> None:
     assert "Фактический логин может отличаться" in text
     assert "ssh veprikov@10.0.117.196" in text
     assert "@fckand1" not in text
+    assert "тот же VPN, что и для H200" in text
+    assert "@undef1ne5" in text
+    assert "helpdesk02@vkusvill.ru" in text
     assert 'href="https://t.me/+test-only"' in text
     assert "Пароль" not in text.split("<b>Alibaba</b>", 1)[1]
     assert keyboard is not None
@@ -493,6 +496,7 @@ def test_available_server_message_is_complete() -> None:
     assert "аккаунт создаётся вручную" in catalog
     assert "Логин выдаётся отдельно" in catalog
     assert "@fckand1" not in catalog
+    assert "Для подключения нужен тот же VPN, что и для H200" in catalog
     assert '<a href="https://t.me/aloeme">@aloeme</a>' in catalog
     assert BOT_DEFAULTS.link_preview_is_disabled is True
     labels = [button.text for row in keyboard.inline_keyboard for button in row]

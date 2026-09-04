@@ -86,8 +86,20 @@ VPN_NOTE = (
     "<code>helpdesk02@vkusvill.ru</code>.\n"
     "3. После получения VPN вернитесь в бот и отправьте заявку через "
     "«➕ Получить доступ».\n"
-    "Без VPN подключиться к H200 по SSH нельзя. Для остальных серверов "
-    "можно сразу отправлять заявку."
+    "Без VPN подключиться к H200 по SSH нельзя. Для Alibaba нужен тот же VPN; "
+    "для остальных ресурсов отдельный VPN-шаг не требуется."
+)
+ALIBABA_VPN_NOTE = (
+    "<b>VPN для Alibaba</b>\n"
+    "Для подключения нужен тот же VPN, что и для H200. Если он уже настроен, "
+    "повторно получать VPN не нужно. Если VPN ещё нет:\n"
+    "1. Пришлите ФИО и физтеховскую почту Диме "
+    '<a href="https://t.me/undef1ne5">@undef1ne5</a> с просьбой оформить VPN.\n'
+    "2. Дождитесь письма на физтеховскую почту от "
+    "<code>helpdesk02@vkusvill.ru</code>.\n"
+    "3. После получения VPN отправьте отдельную заявку на Alibaba через бота, "
+    "если ещё не сделали этого.\n"
+    "Без VPN подключиться к Alibaba нельзя."
 )
 SERVER_NAMES = {
     "shkodnik_opt": "Старый сервер (MIPT)",
@@ -619,7 +631,8 @@ def available_servers_text() -> str:
         "Пилотный внешний ресурс. Заявка отправляется через этого бота, "
         "аккаунт создаётся вручную. Логин выдаётся отдельно и может "
         "не совпадать с Unix-ником из анкеты. После выдачи администратор "
-        "подтвердит доступ в боте."
+        "подтвердит доступ в боте.\n\n"
+        f"{ALIBABA_VPN_NOTE}"
     )
 
 
@@ -825,18 +838,21 @@ def server_dashboard_text(
         if ascend.group_url:
             safe_url = html.escape(ascend.group_url, quote=True)
             lines.append(f'Telegram-группа: <a href="{safe_url}">открыть</a>')
+        lines.append(ALIBABA_VPN_NOTE)
         sections.append("\n".join(lines))
     elif "alibaba_ascend" in registered:
         sections.append(
             "✅ <b>Alibaba</b>\n"
             "Доступ найден в таблице. Фактический логин выдаётся отдельно "
-            "и может не совпадать с ником из анкеты."
+            "и может не совпадать с ником из анкеты.\n"
+            f"{ALIBABA_VPN_NOTE}"
         )
     else:
         sections.append(
             "○ <b>Alibaba</b>\n"
             "Отправьте отдельную заявку через бота. Аккаунт создаётся вручную; "
-            "логин может не совпадать с ником из анкеты."
+            "логин может не совпадать с ником из анкеты.\n"
+            f"{ALIBABA_VPN_NOTE}"
         )
     sections.append(
         "☁️ <b>Яндекс-сервер</b>\n"
@@ -1241,6 +1257,7 @@ def build_router(
                 "Заявка на Alibaba отправлена. Доступ выдаётся вручную, "
                 "поэтому это может занять день или больше. Бот напишет, когда "
                 "администратор подтвердит выдачу.\n\n"
+                f"{ALIBABA_VPN_NOTE}\n\n"
                 f'<a href="{html.escape(service.ascend_group_url, quote=True)}">'
                 "Вступить в общую Telegram-группу</a>",
                 reply_markup=await personalized_main_menu(message.from_user.id),
@@ -1413,7 +1430,8 @@ def build_router(
         await bot.send_message(
             application.telegram_user_id,
             "✅ <b>Доступ к Alibaba выдан</b>\n\n"
-            "Он уже отображается в «Мои серверы».\n"
+            "Он уже отображается в «Мои серверы».\n\n"
+            f"{ALIBABA_VPN_NOTE}\n\n"
             f'<a href="{html.escape(access.group_url, quote=True)}">'
             "Вступить в общую Telegram-группу</a>",
             reply_markup=await personalized_main_menu(application.telegram_user_id),
@@ -1839,7 +1857,8 @@ def build_router(
                 "а аккаунт создаётся вручную. Это может занять день или больше. "
                 "Логин выдаётся отдельно и может не совпадать с "
                 "Unix-ником из анкеты; после выдачи администратор подтвердит "
-                "доступ в боте.",
+                "доступ в боте.\n\n"
+                f"{ALIBABA_VPN_NOTE}",
                 reply_markup=await personalized_server_request_menu(
                     "alibaba_ascend", callback.from_user.id
                 ),

@@ -19,6 +19,16 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     assert resources["alibaba_ascend"]["status"] == "pilot"
     assert resources["alibaba_ascend"]["requestable"] is True
     assert resources["alibaba_ascend"]["approval"] == "external-manual-approval"
+    assert resources["alibaba_ascend"]["vpn_contact"] == "@undef1ne5"
+    assert (
+        resources["alibaba_ascend"]["vpn_email_sender"]
+        == "helpdesk02@vkusvill.ru"
+    )
+    assert resources["alibaba_ascend"]["access_steps"][:3] == [
+        "Reuse the H200 VPN if it is already configured.",
+        "Otherwise send full name and MIPT email to @undef1ne5 to request VPN.",
+        "Wait for the VPN email from helpdesk02@vkusvill.ru.",
+    ]
     assert "access_contact" not in resources["alibaba_ascend"]
     assert "actual login" in " ".join(resources["alibaba_ascend"]["notes"])
     assert "group" not in resources["alibaba_ascend"]
@@ -55,6 +65,9 @@ def test_web_form_offers_ascend_as_a_separate_request() -> None:
     assert 'name="servers" value="alibaba_ascend"' in form
     assert 'payload.servers.includes("alibaba_ascend")' in form_logic
     assert "Alibaba оформляется отдельной заявкой" in form_logic
+    assert "если VPN для H200 уже настроен" in form
+    assert "@undef1ne5" in form
+    assert "helpdesk02@vkusvill.ru" in form
 
 
 def test_public_pages_offer_ascend_through_the_bot() -> None:
@@ -64,8 +77,11 @@ def test_public_pages_offer_ascend_through_the_bot() -> None:
 
     assert 'href="servers.html#alibaba-ascend"' in home
     assert "Пилотный внешний ресурс" in catalog
-    assert "Ручная выдача" in catalog
+    assert "ручная выдача" in catalog
     assert "Подать заявку" in catalog
+    assert "тот же VPN, что и для H200" in catalog
+    assert "@undef1ne5" in catalog
+    assert "helpdesk02@vkusvill.ru" in catalog
     assert "testing-only" not in agents
     assert "@fckand1" not in agents
     assert "actual login" in agents

@@ -19,7 +19,7 @@ Public, secret-free documentation for users and automation agents.
 2. Connection commands, usernames and passwords are personal and come only from the Telegram access bot.
 3. H200 requires a separate VPN before SSH access. The user sends full name and MIPT email to @undef1ne5, waits for the email from helpdesk02@vkusvill.ru, then submits the access request through @brainlab_server_access_bot. No separate administrator message is required.
 4. mlsub is a separate compute service, not another SSH server. Requesting it requires existing approved access to the BrainLab server and a separate administrator approval.
-5. Alibaba is a pilot external resource. Submit a separate request through @brainlab_server_access_bot. The account is created manually and can take a day or longer. The actual login is assigned separately and may differ from the Unix username in the request.
+5. Alibaba is a pilot external resource and requires the same VPN as H200. Reuse the H200 VPN if it is already configured. Otherwise send full name and MIPT email to @undef1ne5, wait for the email from helpdesk02@vkusvill.ru, then submit a separate request through @brainlab_server_access_bot. The account is created manually and can take a day or longer. The actual login is assigned separately and may differ from the Unix username in the request.
 6. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
 
 ## Access
