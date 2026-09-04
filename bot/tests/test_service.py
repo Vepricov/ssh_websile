@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from server_access_bot.domain import (
     Application,
     Profile,
@@ -17,13 +19,25 @@ from server_access_bot.storage import RegistryAlreadyClaimedError, Storage
 class FakeProvisioner:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.full_names: list[str | None] = []
+        self.owner_ids: list[int | None] = []
+        self.acknowledged: list[tuple[str, str]] = []
         self.unavailable: set[tuple[str, str]] = set()
 
     def username_available(self, host: str, username: str) -> bool:
         return (host, username) not in self.unavailable
 
-    def provision(self, host: str, username: str) -> ProvisionedAccess:
+    def provision(
+        self,
+        host: str,
+        username: str,
+        *,
+        full_name: str | None = None,
+        owner_id: int | None = None,
+    ) -> ProvisionedAccess:
         self.calls.append((host, username))
+        self.full_names.append(full_name)
+        self.owner_ids.append(owner_id)
         return ProvisionedAccess(
             host=host,
             username=username,
@@ -32,6 +46,9 @@ class FakeProvisioner:
             group_url="https://t.me/example",
             created=True,
         )
+
+    def acknowledge(self, host: str, username: str, *, owner_id: int) -> None:
+        self.acknowledged.append((host, username))
 
 
 def test_profile_is_saved_without_server_fields(tmp_path: Path) -> None:
@@ -450,6 +467,45 @@ def test_invalid_unix_username_is_rejected_before_provisioning(tmp_path: Path) -
     assert provisioner.calls == []
 
 
+@pytest.mark.parametrize("username", ["a", "_alice", "a" * 32])
+def test_username_must_match_alibaba_helper_contract(
+    tmp_path: Path, username: str
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    service = AccessService(storage, FakeProvisioner())
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Example",
+        server_username=username,
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="research",
+        servers=("alibaba_ascend",),
+    )
+
+    with pytest.raises(ValidationError, match="от 2 до 31"):
+        service.validate_request(application)
+
+
+def test_full_name_must_fit_alibaba_helper_contract(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    service = AccessService(storage, FakeProvisioner())
+    application = Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="A" * 63 + " B",
+        server_username="alice",
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="research",
+        servers=("alibaba_ascend",),
+    )
+
+    with pytest.raises(ValidationError, match="имя и фамилия"):
+        service.validate_request(application)
+
+
 def test_repeat_request_only_provisions_new_servers(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
     provisioner = FakeProvisioner()
@@ -581,7 +637,9 @@ def test_alibaba_ascend_is_valid_only_as_a_separate_request(tmp_path: Path) -> N
         raise AssertionError("Alibaba was combined with another server request")
 
 
-def test_granting_ascend_records_access_without_provisioning(tmp_path: Path) -> None:
+def test_granting_alibaba_provisions_and_records_encrypted_access(
+    tmp_path: Path,
+) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
     provisioner = FakeProvisioner()
     service = AccessService(
@@ -603,11 +661,19 @@ def test_granting_ascend_records_access_without_provisioning(tmp_path: Path) -> 
     access = service.grant_external_access(application)
 
     assert access.host == "alibaba_ascend"
-    assert access.password is None
+    assert access.password == "generated-secret"
     assert access.group_url == "https://t.me/+test-only"
     assert storage.has_access(101, "alibaba_ascend")
-    assert provisioner.calls == []
+    assert provisioner.calls == [("alibaba_ascend", "alice")]
+    assert provisioner.full_names == ["Alice Example"]
+    assert provisioner.owner_ids == [101]
+    assert provisioner.acknowledged == [("alibaba_ascend", "alice")]
     assert service.grant_external_access(application) == access
+    assert provisioner.calls == [("alibaba_ascend", "alice")]
+    assert provisioner.acknowledged == [
+        ("alibaba_ascend", "alice"),
+        ("alibaba_ascend", "alice"),
+    ]
     try:
         service.validate_request(application)
     except ValidationError as error:

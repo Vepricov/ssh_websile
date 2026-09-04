@@ -183,6 +183,15 @@
                 "Alibaba оформляется отдельной заявкой. Оставьте выбранной только Alibaba.",
             );
             valid = false;
+        } else if (
+            payload.servers.includes("alibaba_ascend")
+            && !/^[a-z][a-z0-9_-]{1,30}$/.test(payload.server_username)
+        ) {
+            serverUsername.setCustomValidity(
+                "Для Alibaba ник должен начинаться с латинской буквы и содержать от 2 до 31 символа.",
+            );
+            serverUsername.reportValidity();
+            valid = false;
         }
         return valid;
     }
@@ -203,12 +212,14 @@
 
     form.addEventListener("input", () => {
         touched = true;
+        serverUsername.setCustomValidity("");
         formError.hidden = true;
         queueDraftSave();
     });
 
     form.addEventListener("change", () => {
         touched = true;
+        serverUsername.setCustomValidity("");
         queueDraftSave();
     });
 

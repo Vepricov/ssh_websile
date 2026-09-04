@@ -18,7 +18,7 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     assert resources["mlsub"]["approval"] == "separate-admin-approval"
     assert resources["alibaba_ascend"]["status"] == "pilot"
     assert resources["alibaba_ascend"]["requestable"] is True
-    assert resources["alibaba_ascend"]["approval"] == "external-manual-approval"
+    assert resources["alibaba_ascend"]["approval"] == "admin-approved-automatic"
     assert resources["alibaba_ascend"]["vpn_contact"] == "@undef1ne5"
     assert (
         resources["alibaba_ascend"]["vpn_email_sender"]
@@ -30,7 +30,9 @@ def test_public_catalog_has_separate_safe_resources() -> None:
         "Wait for the VPN email from helpdesk02@vkusvill.ru.",
     ]
     assert "access_contact" not in resources["alibaba_ascend"]
-    assert "actual login" in " ".join(resources["alibaba_ascend"]["notes"])
+    assert "creates the Unix account" in " ".join(
+        resources["alibaba_ascend"]["notes"]
+    )
     assert "group" not in resources["alibaba_ascend"]
     serialized = json.dumps(data).lower()
     assert "password" not in serialized
@@ -68,6 +70,8 @@ def test_web_form_offers_ascend_as_a_separate_request() -> None:
     assert "если VPN для H200 уже настроен" in form
     assert "@undef1ne5" in form
     assert "helpdesk02@vkusvill.ru" in form
+    assert "^[a-z][a-z0-9_-]{1,30}$" in form_logic
+    assert "Для Alibaba ник должен" in form_logic
 
 
 def test_public_pages_offer_ascend_through_the_bot() -> None:
@@ -77,11 +81,13 @@ def test_public_pages_offer_ascend_through_the_bot() -> None:
 
     assert 'href="servers.html#alibaba-ascend"' in home
     assert "Пилотный внешний ресурс" in catalog
-    assert "ручная выдача" in catalog
+    assert "автоматическая выдача" in catalog
+    assert "README.txt" in catalog
     assert "Подать заявку" in catalog
     assert "тот же VPN, что и для H200" in catalog
     assert "@undef1ne5" in catalog
     assert "helpdesk02@vkusvill.ru" in catalog
     assert "testing-only" not in agents
     assert "@fckand1" not in agents
-    assert "actual login" in agents
+    assert "bot creates the Unix account" in agents
+    assert "~/README.txt" in agents

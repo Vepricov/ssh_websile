@@ -11,7 +11,16 @@ from .storage import Storage
 class Provisioner(Protocol):
     def username_available(self, host: str, username: str) -> bool: ...
 
-    def provision(self, host: str, username: str) -> ProvisionedAccess: ...
+    def provision(
+        self,
+        host: str,
+        username: str,
+        *,
+        full_name: str | None = None,
+        owner_id: int | None = None,
+    ) -> ProvisionedAccess: ...
+
+    def acknowledge(self, host: str, username: str, *, owner_id: int) -> None: ...
 
 
 class ValidationError(ValueError):
@@ -19,6 +28,7 @@ class ValidationError(ValueError):
 
 
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+ALIBABA_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
 TELEGRAM_RE = re.compile(r"^@[A-Za-z0-9_]{3,}$")
 ALLOWED_HOSTS = frozenset(
     {"shkodnik_opt", "brain_lab", "vv_h200", "mlsub", "alibaba_ascend"}
@@ -114,26 +124,57 @@ class AccessService:
                     raise ValidationError(
                         "Alibaba уже связана с другим серверным ником."
                     )
+                self._acknowledge_provisioning(
+                    application.telegram_user_id, existing
+                )
                 return existing
             self.validate_request(application)
             if not self.ascend_group_url:
                 raise RuntimeError("ASCEND_GROUP_URL is not configured")
+            if not self.provisioner.username_available(
+                "alibaba_ascend", application.server_username
+            ):
+                raise ValidationError(
+                    "Этот серверный ник уже занят на Alibaba. Выберите другой ник."
+                )
+            provisioned = self.provisioner.provision(
+                "alibaba_ascend",
+                application.server_username,
+                full_name=application.full_name,
+                owner_id=application.telegram_user_id,
+            )
             access = ProvisionedAccess(
-                host="alibaba_ascend",
-                username=application.server_username,
-                password=None,
-                connection="",
+                host=provisioned.host,
+                username=provisioned.username,
+                password=provisioned.password,
+                connection=provisioned.connection,
                 group_url=self.ascend_group_url,
-                created=False,
+                created=provisioned.created,
             )
             self.storage.save_application(application)
             self.storage.save_access(application.telegram_user_id, access)
+            self._acknowledge_provisioning(application.telegram_user_id, access)
             self.storage.record_event(
                 application.telegram_user_id,
-                "external_access_granted",
+                "account_created" if access.created else "account_exists",
                 "alibaba_ascend",
             )
             return access
+
+    def _acknowledge_provisioning(
+        self, telegram_user_id: int, access: ProvisionedAccess
+    ) -> None:
+        try:
+            self.provisioner.acknowledge(
+                access.host, access.username, owner_id=telegram_user_id
+            )
+        except Exception as error:
+            self.storage.record_event(
+                telegram_user_id,
+                "credential_recovery_cleanup_failed",
+                access.host,
+                type(error).__name__,
+            )
 
     def validate_request(self, application: Application) -> None:
         validate(application)
@@ -160,6 +201,21 @@ class AccessService:
             raise ValidationError(
                 "Alibaba оформляется отдельной заявкой. Уберите остальные "
                 "серверы и отправьте заявку только на Alibaba."
+            )
+        if (
+            "alibaba_ascend" in application.servers
+            and not ALIBABA_USERNAME_RE.fullmatch(application.server_username)
+        ):
+            raise ValidationError(
+                "Для Alibaba серверный ник должен содержать от 2 до 31 символа "
+                "и начинаться со строчной латинской буквы."
+            )
+        if (
+            "alibaba_ascend" in application.servers
+            and len(application.full_name) > 64
+        ):
+            raise ValidationError(
+                "Для Alibaba имя и фамилия должны занимать не больше 64 символов."
             )
         if "alibaba_ascend" in application.servers and (
             self.storage.has_access(application.telegram_user_id, "alibaba_ascend")

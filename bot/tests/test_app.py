@@ -159,29 +159,33 @@ def test_registry_services_are_shown_without_fake_password_or_add_button() -> No
     assert "servers:add:shkodnik_opt" in callbacks
 
 
-def test_ascend_access_is_shown_with_group_and_without_password() -> None:
+def test_alibaba_access_shows_credentials_slurm_and_instructions() -> None:
     access = ProvisionedAccess(
         host="alibaba_ascend",
         username="alice",
-        password=None,
-        connection="ssh veprikov@10.0.117.196",
+        password="generated-secret",
+        connection="ssh alice@10.0.117.196",
         group_url="https://t.me/+test-only",
-        created=False,
+        created=True,
     )
 
     text = server_dashboard_text([access])
     keyboard = server_dashboard_keyboard([access])
 
     assert "✅ <b>Alibaba</b>" in text
-    assert "Ник из анкеты (для учёта): <code>alice</code>" in text
-    assert "Фактический логин может отличаться" in text
-    assert "ssh veprikov@10.0.117.196" in text
+    assert "Логин: <code>alice</code>" in text
+    assert "Пароль: <code>generated-secret</code>" in text
+    assert "ssh alice@10.0.117.196" in text
+    assert "Slurm account: <code>brainlab</code>" in text
+    assert "Partition: <code>brain</code>" in text
+    assert "Карты: <code>brain</code>" in text
+    assert "<code>/home/alice/README.txt</code>" in text
+    assert "servers.html#alibaba-ascend" in text
     assert "@fckand1" not in text
     assert "тот же VPN, что и для H200" in text
     assert "@undef1ne5" in text
     assert "helpdesk02@vkusvill.ru" in text
     assert 'href="https://t.me/+test-only"' in text
-    assert "Пароль" not in text.split("<b>Alibaba</b>", 1)[1]
     assert keyboard is not None
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert "servers:add:alibaba_ascend" not in callbacks
@@ -274,32 +278,18 @@ def test_admin_approval_is_bound_to_a_durable_request() -> None:
     assert keyboard.inline_keyboard[0][1].callback_data == "admin:reject:request-123"
 
 
-def test_ascend_admin_keyboard_opens_prefilled_chat_and_keeps_durable_actions() -> None:
+def test_alibaba_admin_keyboard_uses_normal_approval_flow() -> None:
     keyboard = ascend_admin_keyboard(
         "request-123", "Александр Мясников", "xandi281", 101
     )
 
-    contact = keyboard.inline_keyboard[0][0]
-    assert contact.text == "✉️ Передать заявку внешнему администратору"
-    assert contact.url == (
-        "https://t.me/fckand1?text="
-        "%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82%21%20%D0%94%D0%BE%D0%B1%D0%B0%D0%B2%D1%8C%2C%20"
-        "%D0%BF%D0%BE%D0%B6%D0%B0%D0%BB%D1%83%D0%B9%D1%81%D1%82%D0%B0%2C%20%D0%BD%D0%B0%20"
-        "Alibaba.%0A%D0%A4%D0%98%D0%9E%3A%20%D0%90%D0%BB%D0%B5%D0%BA%D1%81%D0%B0%D0%BD%D0%B4%D1%80%20"
-        "%D0%9C%D1%8F%D1%81%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2%0ATelegram%3A%20%40xandi281"
-    )
-    assert keyboard.inline_keyboard[1][0].callback_data == (
+    assert keyboard.inline_keyboard[0][0].text == "Одобрить"
+    assert keyboard.inline_keyboard[0][0].callback_data == (
         "admin:ascend:grant:request-123"
     )
-    assert keyboard.inline_keyboard[1][1].callback_data == (
+    assert keyboard.inline_keyboard[0][1].callback_data == (
         "admin:reject:request-123"
     )
-
-
-def test_ascend_admin_keyboard_uses_numeric_id_without_public_username() -> None:
-    keyboard = ascend_admin_keyboard("request-123", "Alice Smith", None, 101)
-
-    assert "Telegram%20ID%3A%20101" in keyboard.inline_keyboard[0][0].url
 
 
 def test_mlsub_always_requires_separate_admin_approval() -> None:

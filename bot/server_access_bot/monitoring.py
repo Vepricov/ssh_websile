@@ -21,6 +21,7 @@ from .process_control import (
     GpuProcessController,
     ProcessControlError,
 )
+from .provisioning import ALIBABA_IDENTITY_FILE, ALIBABA_TARGET
 from .storage import RegistryAlreadyClaimedError, Storage
 
 Runner = Callable[[str, tuple[str, ...]], tuple[int, str]]
@@ -33,12 +34,14 @@ PUBLIC_SERVER_NAMES = {
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200",
     "yandex": "Яндекс-сервер",
+    "alibaba_ascend": "Alibaba",
 }
 SERVER_LOCATIONS = {
     "shkodnik_opt": "старом сервере (MIPT)",
     "brain_lab": "новом сервере (BrainLab)",
     "vv_h200": "H200",
     "yandex": "сервере Яндекса",
+    "alibaba_ascend": "Alibaba",
 }
 
 
@@ -62,6 +65,7 @@ class ServerGpuStatus:
     host: str
     reachable: bool
     devices: tuple[GpuDeviceStatus, ...]
+    summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +128,16 @@ class GpuFleetScanner:
 
     @staticmethod
     def _run_ssh(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        target = ["--", host]
+        if host == "alibaba_ascend":
+            target = [
+                "-i",
+                ALIBABA_IDENTITY_FILE,
+                "-o",
+                "IdentitiesOnly=yes",
+                "--",
+                ALIBABA_TARGET,
+            ]
         completed = subprocess.run(
             [
                 "/usr/bin/ssh",
@@ -137,8 +151,7 @@ class GpuFleetScanner:
                 "ControlMaster=no",
                 "-o",
                 "ControlPath=none",
-                "--",
-                host,
+                *target,
                 shlex.join(command),
             ],
             capture_output=True,
@@ -250,6 +263,17 @@ class GpuFleetScanner:
 
 class GpuStatusScanner:
     GPU_QUERY = GpuFleetScanner.GPU_QUERY
+    ALIBABA_QUERY = (
+        "/bin/sh",
+        "-lc",
+        "capacity=$(sinfo -h -p brain -o '%G' | head -n 1 | "
+        "grep -o 'gpu:brain:[0-9]*' | cut -d: -f3); "
+        "allocated=$(squeue -h -p brain -t RUNNING -o '%b' | "
+        "awk -F: '$1 == \"gpu\" && $2 == \"brain\" {sum += $3} "
+        "END {print sum + 0}'); "
+        "state=$(sinfo -h -p brain -o '%a|%t' | head -n 1); "
+        "printf '%s|%s|%s\\n' \"$capacity\" \"$allocated\" \"$state\"",
+    )
 
     def __init__(
         self,
@@ -262,7 +286,12 @@ class GpuStatusScanner:
     def scan(self) -> tuple[ServerGpuStatus, ...]:
         def safe_run(host: str) -> tuple[int, str]:
             try:
-                return self.runner(host, self.GPU_QUERY)
+                command = (
+                    self.ALIBABA_QUERY
+                    if host == "alibaba_ascend"
+                    else self.GPU_QUERY
+                )
+                return self.runner(host, command)
             except (OSError, subprocess.SubprocessError, TimeoutError):
                 return 255, ""
 
@@ -277,11 +306,37 @@ class GpuStatusScanner:
                     host=host,
                     reachable=return_code == 0,
                     devices=(
-                        self._parse_devices(output) if return_code == 0 else ()
+                        self._parse_devices(output)
+                        if return_code == 0 and host != "alibaba_ascend"
+                        else ()
+                    ),
+                    summary=(
+                        self._parse_alibaba_summary(output)
+                        if return_code == 0 and host == "alibaba_ascend"
+                        else None
                     ),
                 )
             )
         return tuple(statuses)
+
+    @staticmethod
+    def _parse_alibaba_summary(text: str) -> str | None:
+        parts = text.strip().split("|")
+        if len(parts) != 4:
+            return None
+        total = GpuFleetScanner._non_negative_integer(parts[0])
+        allocated = GpuFleetScanner._non_negative_integer(parts[1])
+        if total is None or allocated is None or total == 0 or allocated > total:
+            return None
+        percent = round(100 * allocated / total)
+        filled = min(5, (percent + 19) // 20)
+        bar = "█" * filled + "░" * (5 - filled)
+        availability = parts[2].strip()
+        state = parts[3].strip()
+        return (
+            f"PPU {bar} {allocated}/{total} занято ({percent}%)\n"
+            f"Slurm partition: brain · состояние: {state or availability}"
+        )
 
     @staticmethod
     def _parse_devices(text: str) -> tuple[GpuDeviceStatus, ...]:
@@ -325,7 +380,7 @@ def format_gpu_status(
     timestamp = updated_at or datetime.now(MOSCOW_TIMEZONE)
     timestamp = timestamp.astimezone(MOSCOW_TIMEZONE)
     sections = [
-        "📡 <b>Статус GPU прямо сейчас</b>",
+        "📡 <b>Статус серверов прямо сейчас</b>",
         f"Обновлено: {timestamp:%d.%m.%Y, %H:%M} МСК",
     ]
     for status in statuses:
@@ -336,6 +391,12 @@ def format_gpu_status(
             )
             continue
         if not status.devices:
+            if status.summary:
+                sections.append(
+                    f"🟢 <b>{server_name}</b>\n"
+                    f"<code>{html.escape(status.summary)}</code>"
+                )
+                continue
             sections.append(
                 f"🟡 <b>{server_name}</b>\nСервер доступен, GPU не найдены."
             )

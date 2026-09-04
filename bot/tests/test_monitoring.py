@@ -98,6 +98,22 @@ def test_gpu_status_uses_public_yandex_name() -> None:
     assert "yandex" not in text
 
 
+def test_server_status_shows_alibaba_ppu_allocation() -> None:
+    def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        assert host == "alibaba_ascend"
+        assert command == GpuStatusScanner.ALIBABA_QUERY
+        return 0, "10|9|up|mix\n"
+
+    statuses = GpuStatusScanner(
+        hosts=("alibaba_ascend",), runner=runner
+    ).scan()
+    text = format_gpu_status(statuses)
+
+    assert "🟢 <b>Alibaba</b>" in text
+    assert "PPU █████ 9/10 занято (90%)" in text
+    assert "Slurm partition: brain · состояние: mix" in text
+
+
 def test_idle_incident_requires_full_duration_and_has_durable_cooldown(
     tmp_path,
 ) -> None:

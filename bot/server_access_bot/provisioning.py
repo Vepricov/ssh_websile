@@ -1,4 +1,5 @@
 import re
+import shlex
 import subprocess
 from collections.abc import Callable
 
@@ -9,8 +10,15 @@ class ProvisioningError(RuntimeError):
     pass
 
 
-HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200", "mlsub"})
+HOSTS = frozenset(
+    {"shkodnik_opt", "brain_lab", "vv_h200", "mlsub", "alibaba_ascend"}
+)
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+ALIBABA_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
+ALIBABA_TARGET = "veprikov@10.0.117.196"
+ALIBABA_IDENTITY_FILE = "/root/.ssh/china_cluster_agents"
+ALIBABA_HELPER = "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision"
+PASSWORD_LINE_RE = re.compile(r"(?im)^(\s*пароль:)\s*.*$")
 SSH_OPTIONS = (
     "-o",
     "BatchMode=yes",
@@ -32,26 +40,48 @@ class SshProvisioner:
     ) -> None:
         self.run = run
 
+    @staticmethod
+    def _target(host: str) -> list[str]:
+        if host == "alibaba_ascend":
+            return [
+                "-i",
+                ALIBABA_IDENTITY_FILE,
+                "-o",
+                "IdentitiesOnly=yes",
+                ALIBABA_TARGET,
+            ]
+        return ["brain_lab" if host == "mlsub" else host]
+
     def username_available(self, host: str, username: str) -> bool:
-        if host not in HOSTS or not USERNAME_RE.fullmatch(username):
+        username_re = (
+            ALIBABA_USERNAME_RE if host == "alibaba_ascend" else USERNAME_RE
+        )
+        if host not in HOSTS or not username_re.fullmatch(username):
             raise ProvisioningError("invalid provisioning target")
         if host == "mlsub":
             return True
+        remote_command = ["getent", "passwd", "--", username]
+        if host == "alibaba_ascend":
+            remote_command = [ALIBABA_HELPER, "available", username]
         completed = self.run(
             [
                 "ssh",
                 *SSH_OPTIONS,
-                host,
-                "getent",
-                "passwd",
-                "--",
-                username,
+                *self._target(host),
+                shlex.join(remote_command),
             ],
             text=True,
             capture_output=True,
             timeout=30,
             check=False,
         )
+        if host == "alibaba_ascend":
+            if completed.returncode == 0:
+                return True
+            if completed.returncode == 1:
+                return False
+            detail = completed.stderr.strip() or f"exit code {completed.returncode}"
+            raise ProvisioningError(f"{host}: username check failed: {detail}")
         if completed.returncode == 0:
             return False
         if completed.returncode in (1, 2):
@@ -59,9 +89,37 @@ class SshProvisioner:
         detail = completed.stderr.strip() or f"exit code {completed.returncode}"
         raise ProvisioningError(f"{host}: username check failed: {detail}")
 
-    def provision(self, host: str, username: str) -> ProvisionedAccess:
-        if host not in HOSTS or not USERNAME_RE.fullmatch(username):
+    def provision(
+        self,
+        host: str,
+        username: str,
+        *,
+        full_name: str | None = None,
+        owner_id: int | None = None,
+    ) -> ProvisionedAccess:
+        username_re = (
+            ALIBABA_USERNAME_RE if host == "alibaba_ascend" else USERNAME_RE
+        )
+        if host not in HOSTS or not username_re.fullmatch(username):
             raise ProvisioningError("invalid provisioning target")
+        if host == "alibaba_ascend":
+            if (
+                not full_name
+                or len(full_name) > 64
+                or any(character in full_name for character in "\r\n\0")
+                or owner_id is None
+                or owner_id <= 0
+            ):
+                raise ProvisioningError("invalid Alibaba application")
+            command = [
+                "ssh",
+                *SSH_OPTIONS,
+                *self._target(host),
+                shlex.join(
+                    [ALIBABA_HELPER, "provision", username, full_name, str(owner_id)]
+                ),
+            ]
+            return self._provision_alibaba(command, username)
         target_host = "brain_lab" if host == "mlsub" else host
         helper = (
             "/usr/local/sbin/hermes-enable-mlsub"
@@ -114,3 +172,63 @@ class SshProvisioner:
             group_url=fields.get("Ссылка на тг группу сервера", ""),
             created=created,
         )
+
+    def _provision_alibaba(
+        self, command: list[str], username: str
+    ) -> ProvisionedAccess:
+        completed = self.run(
+            command,
+            text=True,
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = PASSWORD_LINE_RE.sub(
+                r"\1 [REDACTED]", completed.stderr.strip()
+            ) or f"exit code {completed.returncode}"
+            raise ProvisioningError(f"alibaba_ascend: {detail}")
+        password = ""
+        connection = ""
+        created = False
+        for raw_line in completed.stdout.splitlines():
+            line = raw_line.strip()
+            if line.startswith("пароль:"):
+                password = line.partition(":")[2].strip()
+            elif line == f"ssh {username}@10.0.117.196":
+                connection = line
+            elif f"готово: {username} (" in line:
+                created = True
+        if not created or not password or not connection:
+            raise ProvisioningError(
+                "alibaba_ascend: provisioning helper omitted credentials"
+            )
+        return ProvisionedAccess(
+            host="alibaba_ascend",
+            username=username,
+            password=password,
+            connection=connection,
+            group_url="",
+            created=True,
+        )
+
+    def acknowledge(self, host: str, username: str, *, owner_id: int) -> None:
+        if host != "alibaba_ascend" or not ALIBABA_USERNAME_RE.fullmatch(username):
+            return
+        completed = self.run(
+            [
+                "ssh",
+                *SSH_OPTIONS,
+                *self._target(host),
+                shlex.join(
+                    [ALIBABA_HELPER, "acknowledge", username, str(owner_id)]
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or f"exit code {completed.returncode}"
+            raise ProvisioningError(f"{host}: recovery cleanup failed: {detail}")

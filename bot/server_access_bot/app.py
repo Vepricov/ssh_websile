@@ -5,7 +5,7 @@ import logging
 import secrets
 import time
 from collections.abc import Sequence
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import urlencode, urlparse
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -267,27 +267,12 @@ def ascend_admin_keyboard(
     telegram_username: str | None,
     telegram_user_id: int,
 ) -> InlineKeyboardMarkup:
-    telegram_identity = (
-        f"Telegram: @{telegram_username.lstrip('@')}"
-        if telegram_username
-        else f"Telegram ID: {telegram_user_id}"
-    )
-    draft = (
-        "Привет! Добавь, пожалуйста, на Alibaba.\n"
-        f"ФИО: {full_name}\n"
-        f"{telegram_identity}"
-    )
+    del full_name, telegram_username, telegram_user_id
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✉️ Передать заявку внешнему администратору",
-                    url=f"https://t.me/fckand1?text={quote(draft, safe='')}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="✅ Доступ выдан",
+                    text="Одобрить",
                     callback_data=f"admin:ascend:grant:{request_id}",
                 ),
                 InlineKeyboardButton(
@@ -527,10 +512,11 @@ async def deliver_ascend_reminders(
     for request_id, application in requests:
         sent = False
         text = (
-            "⏰ <b>Доступ на Alibaba уже выдали?</b>\n\n"
+            "⏰ <b>Заявка на Alibaba всё ещё ждёт одобрения</b>\n\n"
             + application_summary(application_data(application))
-            + "\n\nЕсли доступ ещё делают, ничего нажимать не нужно. "
-            "Бот напомнит снова через сутки."
+            + "\n\nНажмите «Одобрить», и бот сам создаст аккаунт и отправит "
+            "пользователю доступ. Если решение пока не принято, бот напомнит "
+            "снова через сутки."
         )
         for admin_user_id in admin_user_ids:
             try:
@@ -825,9 +811,10 @@ def server_dashboard_text(
     if ascend is not None:
         lines = [
             "✅ <b>Alibaba</b>",
-            f"Ник из анкеты (для учёта): <code>{html.escape(ascend.username)}</code>",
-            "Фактический логин может отличаться.",
+            f"Логин: <code>{html.escape(ascend.username)}</code>",
         ]
+        if ascend.password:
+            lines.append(f"Пароль: <code>{html.escape(ascend.password)}</code>")
         if (
             ascend.connection
             and ascend.connection != "Доступ выдаётся вручную через @fckand1"
@@ -835,6 +822,18 @@ def server_dashboard_text(
             lines.append(
                 f"Подключение: <code>{html.escape(ascend.connection)}</code>"
             )
+        lines.extend(
+            [
+                "Slurm account: <code>brainlab</code>",
+                "Partition: <code>brain</code>",
+                "Карты: <code>brain</code>",
+                f"Домашний каталог: <code>/home/{html.escape(ascend.username)}</code>",
+                "Инструкция на сервере: "
+                f"<code>/home/{html.escape(ascend.username)}/README.txt</code>",
+                f'Описание сервера: <a href="{RULES_URL}/servers.html#alibaba-ascend">'
+                "открыть на сайте</a>",
+            ]
+        )
         if ascend.group_url:
             safe_url = html.escape(ascend.group_url, quote=True)
             lines.append(f'Telegram-группа: <a href="{safe_url}">открыть</a>')
@@ -850,8 +849,8 @@ def server_dashboard_text(
     else:
         sections.append(
             "○ <b>Alibaba</b>\n"
-            "Отправьте отдельную заявку через бота. Аккаунт создаётся вручную; "
-            "логин может не совпадать с ником из анкеты.\n"
+            "Отправьте отдельную заявку через бота. После одобрения бот сам "
+            "создаст аккаунт и пришлёт доступ.\n"
             f"{ALIBABA_VPN_NOTE}"
         )
     sections.append(
@@ -1254,9 +1253,8 @@ def build_router(
                 LOGGER.exception("Could not notify access admin %s", admin_id)
         if is_ascend:
             await message.answer(
-                "Заявка на Alibaba отправлена. Доступ выдаётся вручную, "
-                "поэтому это может занять день или больше. Бот напишет, когда "
-                "администратор подтвердит выдачу.\n\n"
+                "Заявка на Alibaba отправлена администратору. После одобрения "
+                "бот сам создаст аккаунт и пришлёт логин, пароль и инструкции.\n\n"
                 f"{ALIBABA_VPN_NOTE}\n\n"
                 f'<a href="{html.escape(service.ascend_group_url, quote=True)}">'
                 "Вступить в общую Telegram-группу</a>",
@@ -1410,6 +1408,7 @@ def build_router(
         if application is None:
             await callback.answer("Заявка уже обработана.", show_alert=True)
             return
+        await callback.answer("Создаю аккаунт…")
         try:
             access = await asyncio.to_thread(service.grant_external_access, application)
         except Exception:
@@ -1417,28 +1416,43 @@ def build_router(
             await asyncio.to_thread(
                 service.storage.release_pending_request_claim, request_id
             )
-            await callback.answer(
-                "Не удалось сохранить доступ. Кнопка остаётся активной.",
-                show_alert=True,
+            if callback.message:
+                await callback.message.answer(
+                    "Не удалось создать доступ Alibaba. Кнопка остаётся активной; "
+                    "попробуйте ещё раз."
+                )
+            return
+        try:
+            await bot.send_message(
+                application.telegram_user_id,
+                "✅ <b>Доступ к Alibaba выдан</b>\n\n"
+                + server_dashboard_text([access]).split("\n\n", 1)[1],
+                protect_content=True,
+                reply_markup=await personalized_main_menu(
+                    application.telegram_user_id
+                ),
             )
+        except Exception:
+            LOGGER.exception(
+                "Could not deliver Alibaba credentials for request %s", request_id
+            )
+            await asyncio.to_thread(
+                service.storage.release_pending_request_claim, request_id
+            )
+            if callback.message:
+                await callback.message.answer(
+                    "Аккаунт создан, но Telegram не принял сообщение с доступом. "
+                    "Кнопка остаётся активной для повторной отправки."
+                )
             return
         await asyncio.to_thread(
             service.storage.resolve_pending_request, request_id, "approved"
         )
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
-        await bot.send_message(
-            application.telegram_user_id,
-            "✅ <b>Доступ к Alibaba выдан</b>\n\n"
-            "Он уже отображается в «Мои серверы».\n\n"
-            f"{ALIBABA_VPN_NOTE}\n\n"
-            f'<a href="{html.escape(access.group_url, quote=True)}">'
-            "Вступить в общую Telegram-группу</a>",
-            reply_markup=await personalized_main_menu(application.telegram_user_id),
-        )
-        await callback.answer("Доступ отмечен как выданный")
-        if callback.message:
-            await callback.message.answer("Доступ к Alibaba подтверждён.")
+            await callback.message.answer(
+                "Аккаунт Alibaba создан, доступ и инструкция отправлены пользователю."
+            )
 
     @router.callback_query(F.data.startswith("admin:approve:"))
     async def approve_new_user(callback: CallbackQuery, bot: Bot) -> None:
@@ -1853,11 +1867,9 @@ def build_router(
         if callback.message:
             await callback.message.answer(
                 "<b>Alibaba</b>\n\n"
-                "Пилотный внешний ресурс. Заявка оформляется через бота, "
-                "а аккаунт создаётся вручную. Это может занять день или больше. "
-                "Логин выдаётся отдельно и может не совпадать с "
-                "Unix-ником из анкеты; после выдачи администратор подтвердит "
-                "доступ в боте.\n\n"
+                "Пилотный ресурс. Отправьте отдельную заявку через бота. После "
+                "одобрения бот сам создаст аккаунт и пришлёт логин, пароль, "
+                "SSH-команду и инструкцию по работе со Slurm.\n\n"
                 f"{ALIBABA_VPN_NOTE}",
                 reply_markup=await personalized_server_request_menu(
                     "alibaba_ascend", callback.from_user.id
@@ -1973,8 +1985,11 @@ async def run(settings: Settings) -> None:
         sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids),
         nopasswd_hosts={"yandex"},
     )
-    monitored_hosts = tuple(PUBLIC_SERVER_NAMES)
-    gpu_status_scanner = GpuStatusScanner(monitored_hosts)
+    status_hosts = tuple(PUBLIC_SERVER_NAMES)
+    monitored_hosts = tuple(
+        host for host in status_hosts if host != "alibaba_ascend"
+    )
+    gpu_status_scanner = GpuStatusScanner(status_hosts)
     disk_scanner = DiskScanner(monitored_hosts)
     sheets = GoogleSheetsRepository(
         settings.google_service_account_file,
@@ -2067,7 +2082,7 @@ async def run(settings: Settings) -> None:
             BotCommand(command="myinfo", description="Показать профиль"),
             BotCommand(command="profile", description="Показать профиль"),
             BotCommand(command="servers", description="Показать мои серверы"),
-            BotCommand(command="status", description="Показать загрузку GPU"),
+            BotCommand(command="status", description="Показать загрузку серверов"),
             BotCommand(command="disk_status", description="Показать свободное место"),
             BotCommand(command="demo", description="Безопасно проверить onboarding"),
             BotCommand(command="cancel", description="Отменить текущее действие"),

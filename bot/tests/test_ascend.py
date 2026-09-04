@@ -44,9 +44,9 @@ def test_ascend_request_reminds_admin_daily_until_resolved(tmp_path) -> None:
             bot, storage, frozenset({999}), now=100
         )
     ) == ("request-1",)
-    assert "Доступ на Alibaba уже выдали?" in bot.messages[-1][1]
+    assert "Заявка на Alibaba всё ещё ждёт одобрения" in bot.messages[-1][1]
     assert (
-        bot.messages[-1][2]["reply_markup"].inline_keyboard[1][0].callback_data
+        bot.messages[-1][2]["reply_markup"].inline_keyboard[0][0].callback_data
         == "admin:ascend:grant:request-1"
     )
 

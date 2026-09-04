@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HELPER=/opt/china-cluster-toolkit/ops/users/lab-add-user.sh
+STATE_DIR="$HOME/.local/state/brainlab-bot-provision"
+
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+action="${1:-}"
+username="${2:-}"
+[[ "$username" =~ ^[a-z][a-z0-9_-]{1,30}$ ]] || die "invalid username"
+
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 0700 "$STATE_DIR"
+record="$STATE_DIR/$username.out"
+
+case "$action" in
+  available)
+    [[ -f "$record" ]] && exit 0
+    getent passwd -- "$username" >/dev/null 2>&1 && exit 1
+    exit 0
+    ;;
+  provision)
+    full_name="${3:-}"
+    owner_id="${4:-}"
+    [[ -n "$full_name" && ${#full_name} -le 64 ]] || die "invalid full name"
+    [[ "$owner_id" =~ ^[1-9][0-9]*$ ]] || die "invalid owner ID"
+    if [[ -f "$record" ]]; then
+      grep -Fxq "BOT_OWNER: $owner_id" "$record" \
+        || die "recovery record belongs to another Telegram user"
+      grep -Fq "готово: $username ($full_name)" "$record" \
+        || die "recovery record belongs to another application"
+      cat "$record"
+      exit 0
+    fi
+    temporary="$(mktemp "$STATE_DIR/.$username.XXXXXX")"
+    trap 'rm -f "$temporary"' EXIT
+    printf 'BOT_OWNER: %s\n' "$owner_id" >"$temporary"
+    status=0
+    sudo -n "$HELPER" "$username" "$full_name" >>"$temporary" 2>&1 \
+      || status=$?
+    if [[ "$status" -ne 0 ]]; then
+      sed -E 's/^([[:space:]]*пароль:).*/\1 [REDACTED]/' "$temporary" >&2
+      exit 1
+    fi
+    chmod 0600 "$temporary"
+    mv -f "$temporary" "$record"
+    trap - EXIT
+    cat "$record"
+    ;;
+  acknowledge)
+    owner_id="${3:-}"
+    [[ "$owner_id" =~ ^[1-9][0-9]*$ ]] || die "invalid owner ID"
+    if [[ -f "$record" ]]; then
+      grep -Fxq "BOT_OWNER: $owner_id" "$record" \
+        || die "recovery record belongs to another Telegram user"
+    fi
+    rm -f -- "$record"
+    ;;
+  *)
+    die "usage: $0 available|provision|acknowledge <username> [full name|owner ID] [owner ID]"
+    ;;
+esac

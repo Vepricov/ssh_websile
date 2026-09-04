@@ -79,3 +79,83 @@ def test_mlsub_uses_its_own_brain_lab_helper_without_a_new_password() -> None:
         "/usr/local/sbin/hermes-enable-mlsub",
         "alice",
     ]
+
+
+def test_alibaba_provisioner_creates_account_and_parses_credentials() -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "[2026-09-04T11:14:33Z] готово: alice (Alice Example)\n"
+            "    ssh alice@10.0.117.196\n"
+            "    пароль: generated-secret\n"
+            "[2026-09-04T11:14:33Z] лаборатория brainlab: счёт brainlab, "
+            "партиция brain, карты brain\n",
+            "",
+        )
+
+    access = SshProvisioner(run=run).provision(
+        "alibaba_ascend", "alice", full_name="Alice Example", owner_id=101
+    )
+
+    assert access.host == "alibaba_ascend"
+    assert access.password == "generated-secret"
+    assert access.connection == "ssh alice@10.0.117.196"
+    assert access.created is True
+    assert calls == [
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-o",
+            "ControlMaster=no",
+            "-o",
+            "ControlPath=none",
+            "-o",
+            "UpdateHostKeys=no",
+            "-i",
+            "/root/.ssh/china_cluster_agents",
+            "-o",
+            "IdentitiesOnly=yes",
+            "veprikov@10.0.117.196",
+            "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision "
+            "provision alice 'Alice Example' 101",
+        ]
+    ]
+
+
+def test_alibaba_failure_redacts_password_from_error() -> None:
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            "setup failed\n    пароль: must-not-leak\n",
+        )
+
+    try:
+        SshProvisioner(run=run).provision(
+            "alibaba_ascend", "alice", full_name="Alice Example", owner_id=101
+        )
+    except Exception as error:
+        assert "must-not-leak" not in str(error)
+    else:
+        raise AssertionError("failed Alibaba provisioning was accepted")
+
+
+def test_alibaba_username_check_uses_recovery_aware_helper() -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    assert SshProvisioner(run=run).username_available("alibaba_ascend", "alice")
+    assert calls[0][-1] == (
+        "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision available alice"
+    )
