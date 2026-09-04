@@ -164,7 +164,7 @@ def test_ascend_access_is_shown_with_group_and_without_password() -> None:
         host="alibaba_ascend",
         username="alice",
         password=None,
-        connection="Доступ выдаётся вручную через @fckand1",
+        connection="ssh veprikov@10.0.117.196",
         group_url="https://t.me/+test-only",
         created=False,
     )
@@ -173,12 +173,31 @@ def test_ascend_access_is_shown_with_group_and_without_password() -> None:
     keyboard = server_dashboard_keyboard([access])
 
     assert "✅ <b>Alibaba Ascend</b>" in text
-    assert "@fckand1" in text
+    assert "Ник из анкеты (для учёта): <code>alice</code>" in text
+    assert "Фактический логин на Ascend может отличаться" in text
+    assert "ssh veprikov@10.0.117.196" in text
+    assert "@fckand1" not in text
     assert 'href="https://t.me/+test-only"' in text
     assert "Пароль" not in text.split("<b>Alibaba Ascend</b>", 1)[1]
     assert keyboard is not None
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert "servers:add:alibaba_ascend" not in callbacks
+
+
+def test_ascend_dashboard_hides_legacy_external_admin_connection() -> None:
+    access = ProvisionedAccess(
+        host="alibaba_ascend",
+        username="alice",
+        password=None,
+        connection="Доступ выдаётся вручную через @fckand1",
+        group_url="",
+        created=False,
+    )
+
+    text = server_dashboard_text([access])
+
+    assert "@fckand1" not in text
+    assert "Подключение:" not in text.split("<b>Alibaba Ascend</b>", 1)[1]
 
 
 def test_registry_dashboard_does_not_show_invalid_legacy_unix_name() -> None:
@@ -256,6 +275,7 @@ def test_ascend_admin_keyboard_opens_prefilled_chat_and_keeps_durable_actions() 
     keyboard = ascend_admin_keyboard("request-123", "Александр Мясников")
 
     contact = keyboard.inline_keyboard[0][0]
+    assert contact.text == "✉️ Передать ФИО внешнему администратору"
     assert contact.url == (
         "https://t.me/fckand1?text="
         "%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82%21%20%D0%94%D0%BE%D0%B1%D0%B0%D0%B2%D1%8C%2C%20"
@@ -462,8 +482,9 @@ def test_available_server_message_is_complete() -> None:
     assert "уже выданный доступ к BrainLab" in catalog
     assert "отдельного одобрения администратора" in catalog
     assert "Alibaba Ascend" in catalog
-    assert "ручную выдачу" in catalog
-    assert "@fckand1" in catalog
+    assert "аккаунт создаётся вручную" in catalog
+    assert "Логин на Ascend выдаётся отдельно" in catalog
+    assert "@fckand1" not in catalog
     assert '<a href="https://t.me/aloeme">@aloeme</a>' in catalog
     assert BOT_DEFAULTS.link_preview_is_disabled is True
     labels = [button.text for row in keyboard.inline_keyboard for button in row]

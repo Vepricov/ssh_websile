@@ -585,23 +585,35 @@ class Storage:
 
     def acknowledge_disk_cleanup_request(
         self, token: str, telegram_user_id: int, *, now: int
-    ) -> DiskCleanupRequest | None:
+    ) -> tuple[DiskCleanupRequest, bool] | None:
         with self._connect() as db:
             updated = db.execute(
                 """
                 UPDATE disk_cleanup_requests
                 SET status = 'acknowledged', acknowledged_at = ?
                 WHERE token = ? AND telegram_user_id = ?
-                    AND status IN ('pending', 'acknowledged')
+                    AND status = 'pending'
                 """,
                 (now, token, telegram_user_id),
             )
             if updated.rowcount != 1:
-                return None
+                row = db.execute(
+                    """
+                    SELECT * FROM disk_cleanup_requests
+                    WHERE token = ? AND telegram_user_id = ?
+                        AND status IN ('acknowledged', 'completed')
+                    """,
+                    (token, telegram_user_id),
+                ).fetchone()
+                return (
+                    None
+                    if row is None
+                    else (self._disk_cleanup_request_from_row(row), False)
+                )
             row = db.execute(
                 "SELECT * FROM disk_cleanup_requests WHERE token = ?", (token,)
             ).fetchone()
-        return self._disk_cleanup_request_from_row(row)
+        return self._disk_cleanup_request_from_row(row), True
 
     def complete_disk_cleanup_request(self, token: str, *, now: int) -> None:
         with self._connect() as db:

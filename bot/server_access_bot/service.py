@@ -122,7 +122,7 @@ class AccessService:
                 host="alibaba_ascend",
                 username=application.server_username,
                 password=None,
-                connection="Доступ выдаётся вручную через @fckand1",
+                connection="",
                 group_url=self.ascend_group_url,
                 created=False,
             )

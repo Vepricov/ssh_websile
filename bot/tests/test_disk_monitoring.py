@@ -463,9 +463,44 @@ def test_disk_cleanup_acknowledgement_is_owned_by_telegram_user(tmp_path) -> Non
 
     assert request is not None
     assert storage.acknowledge_disk_cleanup_request("token", 999, now=110) is None
-    acknowledged = storage.acknowledge_disk_cleanup_request("token", 101, now=110)
-    assert acknowledged is not None
+    result = storage.acknowledge_disk_cleanup_request("token", 101, now=110)
+    assert result is not None
+    acknowledged, changed = result
     assert acknowledged.status == "acknowledged"
+    assert changed is True
+
+    repeated = storage.acknowledge_disk_cleanup_request("token", 101, now=120)
+
+    assert repeated is not None
+    repeated_request, repeated_changed = repeated
+    assert repeated_request.acknowledged_at == 110
+    assert repeated_changed is False
+
+
+def test_completed_disk_cleanup_acknowledgement_remains_available_to_owner(
+    tmp_path,
+) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    request = storage.claim_disk_cleanup_request(
+        token="token",
+        host="brain_lab",
+        server_username="alice",
+        telegram_user_id=101,
+        size_bytes=700 * 1024**3,
+        rank=1,
+        now=100,
+        cooldown_seconds=86400,
+    )
+    assert request is not None
+    storage.complete_disk_cleanup_request(request.token, now=120)
+
+    assert storage.acknowledge_disk_cleanup_request("token", 999, now=130) is None
+    result = storage.acknowledge_disk_cleanup_request("token", 101, now=130)
+
+    assert result is not None
+    completed, changed = result
+    assert completed.status == "completed"
+    assert changed is False
 
 
 def test_reopened_disk_cleanup_request_rotates_callback_token(tmp_path) -> None:

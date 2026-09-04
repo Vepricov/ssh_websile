@@ -10,6 +10,7 @@ from urllib.parse import quote, urlencode, urlparse
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatType, ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -254,7 +255,7 @@ def ascend_admin_keyboard(request_id: str, full_name: str) -> InlineKeyboardMark
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✉️ Передать ФИО @fckand1",
+                    text="✉️ Передать ФИО внешнему администратору",
                     url=f"https://t.me/fckand1?text={quote(draft, safe='')}",
                 )
             ],
@@ -599,8 +600,9 @@ def available_servers_text() -> str:
         'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.\n\n'
         "<b>Alibaba Ascend</b>\n"
         "Пилотный внешний ресурс. Заявка отправляется через этого бота, "
-        "а ручную выдачу выполняет @fckand1. После выдачи администратор "
-        "подтвердит её в боте."
+        "аккаунт создаётся вручную. Логин на Ascend выдаётся отдельно и может "
+        "не совпадать с Unix-ником из анкеты. После выдачи администратор "
+        "подтвердит доступ в боте."
     )
 
 
@@ -625,7 +627,7 @@ def demo_accesses(
         "brain_lab": f"ssh -p 10210 {username}@proxy2.cod.phystech.edu",
         "vv_h200": f"ssh -p 30018 {username}@10.0.116.11",
         "mlsub": "mlsub run --repo <https git> --entry train.py --gpus 1",
-        "alibaba_ascend": "Доступ выдаётся вручную через @fckand1",
+        "alibaba_ascend": "",
     }
     return [
         ProvisionedAccess(
@@ -793,9 +795,16 @@ def server_dashboard_text(
     if ascend is not None:
         lines = [
             "✅ <b>Alibaba Ascend</b>",
-            f"Ник: <code>{html.escape(ascend.username)}</code>",
-            "Доступ выдан вручную через @fckand1.",
+            f"Ник из анкеты (для учёта): <code>{html.escape(ascend.username)}</code>",
+            "Фактический логин на Ascend может отличаться.",
         ]
+        if (
+            ascend.connection
+            and ascend.connection != "Доступ выдаётся вручную через @fckand1"
+        ):
+            lines.append(
+                f"Подключение: <code>{html.escape(ascend.connection)}</code>"
+            )
         if ascend.group_url:
             safe_url = html.escape(ascend.group_url, quote=True)
             lines.append(f'Telegram-группа: <a href="{safe_url}">открыть</a>')
@@ -803,12 +812,14 @@ def server_dashboard_text(
     elif "alibaba_ascend" in registered:
         sections.append(
             "✅ <b>Alibaba Ascend</b>\n"
-            "Доступ найден в таблице. Выдача выполняется вручную через @fckand1."
+            "Доступ найден в таблице. Фактический логин выдаётся отдельно "
+            "и может не совпадать с ником из анкеты."
         )
     else:
         sections.append(
             "○ <b>Alibaba Ascend</b>\n"
-            "Отправьте отдельную заявку через бота; доступ выдаёт @fckand1."
+            "Отправьте отдельную заявку через бота. Аккаунт создаётся вручную; "
+            "логин на Ascend может не совпадать с ником из анкеты."
         )
     sections.append(
         "☁️ <b>Яндекс-сервер</b>\n"
@@ -1624,26 +1635,38 @@ def build_router(
     @router.callback_query(F.data.startswith("disk:cleaned:"))
     async def acknowledge_disk_cleanup(callback: CallbackQuery) -> None:
         token = (callback.data or "").rsplit(":", 1)[-1]
-        request = await asyncio.to_thread(
+        result = await asyncio.to_thread(
             service.storage.acknowledge_disk_cleanup_request,
             token,
             callback.from_user.id,
             now=int(time.time()),
         )
-        if request is None:
+        if result is None:
             await callback.answer(
                 "Эта кнопка относится к другому пользователю или уже неактуальна.",
                 show_alert=True,
             )
             return
-        await callback.answer("Принято")
+        request, newly_acknowledged = result
+        already_confirmed = request.status == "completed"
+        await callback.answer(
+            "Очистка уже подтверждена"
+            if already_confirmed
+            else ("Принято" if newly_acknowledged else "Уже принято")
+        )
         if callback.message:
-            await callback.message.edit_reply_markup(reply_markup=None)
-            await callback.message.answer(
-                "✅ Принял. Проверю объём по следующему замеру. "
-                "Если каталог всё ещё останется среди самых больших, "
-                "напомню не раньше чем через сутки."
-            )
+            with contextlib.suppress(TelegramBadRequest):
+                await callback.message.edit_reply_markup(reply_markup=None)
+            if already_confirmed:
+                await callback.message.answer(
+                    "✅ Очистка уже подтверждена последним замером. Спасибо!"
+                )
+            elif newly_acknowledged:
+                await callback.message.answer(
+                    "✅ Принял. Проверю объём по следующему замеру. "
+                    "Если каталог всё ещё останется среди самых больших, "
+                    "напомню не раньше чем через сутки."
+                )
 
     @router.message(Command("servers"))
     @router.message(F.text.in_({"Мои серверы", "🔐 Мои серверы"}))
@@ -1791,8 +1814,10 @@ def build_router(
             await callback.message.answer(
                 "<b>Alibaba Ascend</b>\n\n"
                 "Пилотный внешний ресурс. Заявка оформляется через бота, "
-                "а аккаунт вручную создаёт @fckand1. Это может занять день "
-                "или больше; после выдачи администратор подтвердит доступ в боте.",
+                "а аккаунт создаётся вручную. Это может занять день или больше. "
+                "Логин на Ascend выдаётся отдельно и может не совпадать с "
+                "Unix-ником из анкеты; после выдачи администратор подтвердит "
+                "доступ в боте.",
                 reply_markup=await personalized_server_request_menu(
                     "alibaba_ascend", callback.from_user.id
                 ),

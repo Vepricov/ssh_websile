@@ -19,7 +19,8 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     assert resources["alibaba_ascend"]["status"] == "pilot"
     assert resources["alibaba_ascend"]["requestable"] is True
     assert resources["alibaba_ascend"]["approval"] == "external-manual-approval"
-    assert resources["alibaba_ascend"]["access_contact"] == "@fckand1"
+    assert "access_contact" not in resources["alibaba_ascend"]
+    assert "actual Ascend login" in " ".join(resources["alibaba_ascend"]["notes"])
     assert "group" not in resources["alibaba_ascend"]
     serialized = json.dumps(data).lower()
     assert "password" not in serialized
@@ -66,4 +67,5 @@ def test_public_pages_offer_ascend_through_the_bot() -> None:
     assert "Ручная выдача" in catalog
     assert "Подать заявку" in catalog
     assert "testing-only" not in agents
-    assert "@fckand1" in agents
+    assert "@fckand1" not in agents
+    assert "actual Ascend login" in agents
