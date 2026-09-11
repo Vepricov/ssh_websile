@@ -29,7 +29,6 @@ class ValidationError(ValueError):
 
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 ALIBABA_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
-TELEGRAM_RE = re.compile(r"^@[A-Za-z0-9_]{3,}$")
 ALLOWED_HOSTS = frozenset(
     {"shkodnik_opt", "brain_lab", "vv_h200", "mlsub", "alibaba_ascend"}
 )
@@ -39,13 +38,6 @@ MOSCOW_TIME = ZoneInfo("Europe/Moscow")
 def _human_name(value: str) -> bool:
     words = value.split()
     return len(words) >= 2 and all(word.replace("-", "").isalpha() for word in words)
-
-
-def _recommender_ok(value: str) -> bool:
-    if TELEGRAM_RE.fullmatch(value) or _human_name(value):
-        return True
-    name, separator, handle = value.rpartition(" ")
-    return bool(separator and _human_name(name) and TELEGRAM_RE.fullmatch(handle))
 
 
 def _access_term_ok(value: str) -> bool:
@@ -60,8 +52,8 @@ def _access_term_ok(value: str) -> bool:
 def validate_profile(profile: Profile) -> None:
     if not _human_name(profile.full_name):
         raise ValidationError("Укажите имя и фамилию.")
-    if not _recommender_ok(profile.recommender):
-        raise ValidationError("Укажите имя или Telegram-ник рекомендателя.")
+    if not profile.recommender.strip():
+        raise ValidationError("Укажите рекомендателя.")
 
 
 def validate(application: Application) -> None:

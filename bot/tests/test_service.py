@@ -12,7 +12,12 @@ from server_access_bot.domain import (
     ProvisionedAccess,
     RegistryMatch,
 )
-from server_access_bot.service import AccessService, ValidationError, validate
+from server_access_bot.service import (
+    AccessService,
+    ValidationError,
+    validate,
+    validate_profile,
+)
 from server_access_bot.storage import RegistryAlreadyClaimedError, Storage
 
 
@@ -49,6 +54,20 @@ class FakeProvisioner:
 
     def acknowledge(self, host: str, username: str, *, owner_id: int) -> None:
         self.acknowledged.append((host, username))
+
+
+def test_recommender_is_any_nonempty_text() -> None:
+    base = {
+        "telegram_user_id": 101,
+        "telegram_username": "alice_tg",
+        "full_name": "Alice Smith",
+    }
+
+    for recommender in ("Наиль", "Даниил", "руководитель группы", "@dmedyakov"):
+        validate_profile(Profile(recommender=recommender, **base))
+
+    with pytest.raises(ValidationError, match="Укажите рекомендателя"):
+        validate_profile(Profile(recommender="   ", **base))
 
 
 def test_profile_is_saved_without_server_fields(tmp_path: Path) -> None:

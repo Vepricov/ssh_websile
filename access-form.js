@@ -78,29 +78,12 @@
             && words.every((word) => /^(?=.*\p{L})[\p{L}-]+$/u.test(word));
     }
 
-    function isTelegramHandle(value) {
-        return /^@[A-Za-z0-9_]{3,}$/.test(value);
-    }
-
-    function isRecommender(value) {
-        const normalized = value.trim();
-        if (isTelegramHandle(normalized) || isHumanName(normalized)) {
-            return true;
-        }
-        const separator = normalized.lastIndexOf(" ");
-        return separator > 0
-            && isHumanName(normalized.slice(0, separator))
-            && isTelegramHandle(normalized.slice(separator + 1));
-    }
-
     function validateForm() {
         fullName.setCustomValidity(
             isHumanName(fullName.value) ? "" : "Укажите имя и фамилию.",
         );
         recommender.setCustomValidity(
-            isRecommender(recommender.value)
-                ? ""
-                : "Укажите имя и фамилию или Telegram-ник рекомендателя.",
+            recommender.value.trim() ? "" : "Укажите рекомендателя.",
         );
         return form.reportValidity();
     }
