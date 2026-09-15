@@ -137,3 +137,42 @@ python3 -c 'import base64, secrets; print(base64.urlsafe_b64encode(secrets.token
 
 Never commit the bot token, encryption key, service-account key, SQLite
 database, or credential-bearing logs.
+
+
+## Lab Knowledge MCP access
+
+The **База знаний MCP** button and `/mcp` explain the shared knowledge base and
+link to the public Atlas with fictional data. **Подать заявку** sends an application
+with the person's name and Telegram ID directly to the owner; no project description
+is requested. `MCP_ADMIN_USER_IDS` controls approval independently of server provisioning.
+After approval the bot creates a `member` identity bound to the immutable numeric
+Telegram ID and sends its token, onboarding guide, Atlas and the configured testing
+group. SSH/server access is not required.
+
+The applicant's key is encrypted in the existing SQLite database. The remote
+bridge receives it on stdin, stores only its hash in MCP, and verifies the owner
+and role before returning. Retrying after an SSH timeout or failed delivery reuses
+the same identity and token. Existing elevated or disabled accounts require manual
+review. Neither the request nor its purpose grants access to somebody else's project.
+
+Owner commands:
+
+- `/mcp_requests`: pending approvals and unfinished deliveries, including after restart.
+- `/mcp_revoke TELEGRAM_ID`: revoke that bot-issued token.
+
+Participants can redisplay their connection or revoke their own token via `/mcp`.
+Group callbacks and approval attempts by other users do not grant access.
+
+Deploy `deploy/telegram_mcp_access.py` to the canonical MCP service's `scripts/`
+and `deploy/brainlab-mcp-access` to its owner's `~/.local/bin/`. The wrapper reuses
+that service's environment and current Python runtime. No backend restart is needed.
+The bot's existing SSH identity reaches that wrapper. Configure `MCP_ADMIN_USER_IDS`
+and `MCP_TESTING_GROUP_URL` only in `/etc/server-access-bot/bot.env` (mode 0600).
+Do not put the private invite or tokens in the repository.
+
+Verification: `tests/test_mcp_access.py` exercises the real SQLite store and aiogram
+router with a fake Telegram transport. `deploy/test_telegram_mcp_access.py` runs in
+the MCP Python environment against a disposable `TEST_DATABASE_URL` with `_test_`
+in its database name. It tests token replay/revocation and the published MCP tools
+for member, viewer, contributor and project-creator permissions. It must never
+run against the production database.

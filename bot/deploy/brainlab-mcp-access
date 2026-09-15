@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+cd /home/shkodnik1917/brainlab-stack/lab-knowledge
+set -a
+. ./.env
+. ./.service.env
+set +a
+export LAB_KNOWLEDGE_DB_HOST=127.0.0.1
+export LAB_KNOWLEDGE_DB_PORT=55432
+exec .venv/bin/python scripts/telegram_mcp_access.py
