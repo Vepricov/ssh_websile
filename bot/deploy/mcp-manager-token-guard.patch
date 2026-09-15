@@ -1,0 +1,97 @@
+--- a/src/lab_knowledge/service.py
++++ b/src/lab_knowledge/service.py
+@@ -225,6 +225,8 @@
+             owner = self.repository.user_by_email(email)
+             if owner is None:
+                 raise NotFoundError("no such user: ask a lead to add them first")
++            if actor.role is Role.MANAGER and owner.id != actor.id and owner.role is not Role.MEMBER:
++                raise AuthorizationError("a manager can manage keys only for members or themselves")
+             # Ключ отключённому человеку выглядит как рабочий и молча не работает: проверка
+             # доступа смотрит на признак active, и запрос отвечает голым 401 без причины.
+             # 04-09-2026 я так и выдал ключ отключённой пробной учётной записи и потратил
+@@ -237,7 +239,12 @@
+                 )
+         else:
+             owner = actor
+-        with self.repository.transaction_scope():
++        with self.repository.idempotency_scope(owner.id, "account_keys", "access"):
++            owner = self.repository.user_by_email(owner.email)
++            if owner is None or not owner.active:
++                raise AuthorizationError("token owner is unavailable")
++            if actor.role is Role.MANAGER and owner.id != actor.id and owner.role is not Role.MEMBER:
++                raise AuthorizationError("a manager can manage keys only for members or themselves")
+             self.repository.add_token(owner.id, self._token_hash(token), label)
+             self.repository.audit(
+                 AuditEvent(
+@@ -297,23 +304,27 @@
+         user = self.repository.user_by_email(email)
+         if user is None:
+             raise NotFoundError("user not found")
+-        if user.role is role:
+-            return user
+-        if user.role is Role.LEAD and role is not Role.LEAD:
+-            leads = [x for x in self.repository.list_users() if x.role is Role.LEAD and x.active]
+-            if len(leads) <= 1:
+-                raise ValidationError(
+-                    "this is the last lead: promote somebody else first, "
+-                    "or the laboratory is left with nobody who can grant access"
+-                )
+-        changed = self.repository.set_user_role(user.id, role)
+-        if changed is None:
+-            raise NotFoundError("user not found")
+-        self.repository.audit(
+-            AuditEvent(actor.id, "user.role_changed", "user", user.id, None,
+-                       {"email": email, "from": user.role.value, "to": role.value})
+-        )
+-        return changed
++        with self.repository.idempotency_scope(user.id, "account_keys", "access"):
++            user = self.repository.user_by_email(email)
++            if user is None:
++                raise NotFoundError("user not found")
++            if user.role is role:
++                return user
++            if user.role is Role.LEAD and role is not Role.LEAD:
++                leads = [x for x in self.repository.list_users() if x.role is Role.LEAD and x.active]
++                if len(leads) <= 1:
++                    raise ValidationError(
++                        "this is the last lead: promote somebody else first, "
++                        "or the laboratory is left with nobody who can grant access"
++                    )
++            changed = self.repository.set_user_role(user.id, role)
++            if changed is None:
++                raise NotFoundError("user not found")
++            self.repository.audit(
++                AuditEvent(actor.id, "user.role_changed", "user", user.id, None,
++                           {"email": email, "from": user.role.value, "to": role.value})
++            )
++            return changed
+ 
+     def list_agent_tokens(self, actor: User, email: str = "") -> list[dict[str, Any]]:
+         """Какие токены выданы: подписи и даты. Сами токены нигде не хранятся."""
+@@ -325,6 +336,8 @@
+             owner = self.repository.user_by_email(email)
+             if owner is None:
+                 raise NotFoundError("no such user")
++            if actor.role is Role.MANAGER and owner.id != actor.id and owner.role is not Role.MEMBER:
++                raise AuthorizationError("a manager can manage keys only for members or themselves")
+         else:
+             owner = actor
+         return self.repository.tokens_of_user(owner.id)
+@@ -339,9 +352,16 @@
+             owner = self.repository.user_by_email(email)
+             if owner is None:
+                 raise NotFoundError("no such user")
++            if actor.role is Role.MANAGER and owner.id != actor.id and owner.role is not Role.MEMBER:
++                raise AuthorizationError("a manager can manage keys only for members or themselves")
+         else:
+             owner = actor
+-        with self.repository.transaction_scope():
++        with self.repository.idempotency_scope(owner.id, "account_keys", "access"):
++            owner = self.repository.user_by_email(owner.email)
++            if owner is None:
++                raise NotFoundError("no such user")
++            if actor.role is Role.MANAGER and owner.id != actor.id and owner.role is not Role.MEMBER:
++                raise AuthorizationError("a manager can manage keys only for members or themselves")
+             revoked = self.repository.revoke_token_label(owner.id, label.strip())
+             if revoked:
+                 self.repository.audit(

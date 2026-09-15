@@ -6,9 +6,10 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup, WebAppInfo
 
 from .mcp_access import McpAccessService
+from .mcp_profile import FORM_URL, ROLES, is_application, parse_application
 
 LOGGER = logging.getLogger(__name__)
 MCP_MENU = "🧠 База знаний MCP"
@@ -17,31 +18,50 @@ GUIDE_URL = "https://github.com/brain-lab-research/claude-brainlab/blob/main/doc
 MCP_URL = "https://68-183-24-188.sslip.io:9443/mcp"
 
 
-def actions(request_id: str) -> InlineKeyboardMarkup:
+def form_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[[
+        KeyboardButton(text="Заполнить заявку MCP", web_app=WebAppInfo(url=FORM_URL))],
+        [KeyboardButton(text="Главное меню")]], resize_keyboard=True)
+
+
+def actions(request_id: str, role: str = "member") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Одобрить MCP", callback_data=f"mcp:approve:{request_id}"),
+        InlineKeyboardButton(text=f"Одобрить · {ROLES[role][0]}", callback_data=f"mcp:grant:{role}:{request_id}"),
+    ], [
+        InlineKeyboardButton(text="Выбрать другую роль", callback_data=f"mcp:roles:{request_id}"),
         InlineKeyboardButton(text="Отклонить", callback_data=f"mcp:reject:{request_id}"),
     ]])
 
 
 def request_text(row: dict) -> str:
-    purpose = f"{html.escape(row['purpose'])}\n\n" if row["purpose"] else ""
-    return (
-        "<b>Заявка в базу знаний MCP</b>\n"
-        f"{html.escape(row['full_name'])} · Telegram ID <code>{row['telegram_user_id']}</code>\n\n"
-        f"{purpose}"
-        "Роль: участник. Чтение общей базы и создание своих проектов. "
-        "Запись в существующие проекты — после приглашения их владельцем."
-    )
+    role = row.get("approved_role") or row.get("requested_role") or "member"
+    contact = f"@{html.escape(row['telegram_username'])}" if row.get("telegram_username") else "Открыть Telegram"
+    details = ["<b>Заявка в базу знаний MCP</b>",
+               f"<b>{html.escape(row['full_name'])}</b>",
+               f"Ник: <b>{html.escape(row.get('username') or row.get('telegram_username') or 'не указан')}</b>",
+               f'<a href="tg://user?id={row["telegram_user_id"]}">{contact}</a>',
+               f"Рекомендатель: {html.escape(row.get('recommender') or 'не указан')}",
+               f"Запрошена роль: <b>{ROLES[row.get('requested_role') or 'member'][0]}</b>",
+               ROLES[role][1]]
+    if row.get("purpose"):
+        details.append(f"Задачи: {html.escape(row['purpose'])}")
+    return "\n".join(details)
 
 
 def welcome_text(access: dict, group_url: str = "") -> str:
-    text = (
-        "<b>Доступ к Lab Knowledge MCP выдан</b>\n\n"
-        "Вы можете читать общую базу, создавать свои проекты и работать в них. "
+    project_access = (
+        "Вы можете управлять всеми проектами лаборатории.\n\n"
+        if access["role"] == "lead" else
+        "Вы можете читать общую базу и создавать свои проекты. "
         "Чтобы дополнять существующий проект, попросите его владельца добавить вас "
         "как соавтора (contributor). Соавторы могут изменять и удалять записи проекта.\n\n"
-        f"Ваш аккаунт: <code>{html.escape(access['email'])}</code>\n"
+    )
+    text = (
+        "<b>Доступ к Lab Knowledge MCP выдан</b>\n\n"
+        f"{html.escape(access.get('full_name') or 'Участник')} · <b>{html.escape(access.get('username') or access.get('telegram_username') or 'MCP')}</b>\n"
+        f"Роль: <b>{ROLES[access['role']][0]}</b>\n{ROLES[access['role']][1]}\n\n"
+        f"{project_access}"
+        f"Идентификатор для приглашения в проект: <code>{html.escape(access['email'])}</code>\n"
         f"Адрес MCP: <code>{MCP_URL}</code>\n"
         f"Личный ключ: <tg-spoiler><code>{access['token']}</code></tg-spoiler>\n\n"
         "<b>Как начать</b>\n"
@@ -83,7 +103,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
         if not rows:
             await message.answer("Необработанных заявок MCP нет.")
         for row in rows:
-            await message.answer(request_text(row), reply_markup=actions(row["request_id"]))
+            await message.answer(request_text(row), reply_markup=actions(row["request_id"], row.get("approved_role") or row.get("requested_role") or "member"))
 
     @router.message(Command("mcp_revoke"))
     async def admin_revoke(message: Message) -> None:
@@ -131,59 +151,82 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             "сохранять ваши выводы и решения.\n\n"
             f'<a href="{ATLAS_URL}">Посмотреть, как это работает, на сайте Atlas</a> — '
             "сайт открыт всем, данные в нём вымышленные.\n\n"
-            "Для доступа к рабочей базе нажмите «Подать заявку». После одобрения "
+            "Заполните заявку: ФИО, ник, рекомендатель и желаемая роль. После одобрения "
             "Андреем бот пришлёт личный ключ, инструкцию подключения и группу тестирования.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="Подать заявку", callback_data="mcp:request"),
-            ]]),
+            reply_markup=form_menu(),
         )
 
     @router.callback_query(F.data == "mcp:request")
-    async def request(callback: CallbackQuery, bot: Bot) -> None:
-        if not service.admins:
-            await callback.answer("Выдача доступа пока не настроена.", show_alert=True)
-            return
+    async def old_request(callback: CallbackQuery) -> None:
         await callback.answer()
-        profile = await asyncio.to_thread(service.storage.profile_for, callback.from_user.id)
+        await callback.message.answer("Заполните заявку в форме.", reply_markup=form_menu())
+
+    @router.message(F.web_app_data.data.func(is_application))
+    async def request(message: Message, bot: Bot, state: FSMContext) -> None:
+        if not service.admins:
+            await message.answer("Выдача доступа пока не настроена.")
+            return
         try:
+            data = parse_application(message.from_user, message.web_app_data.data)
+            profile = data["profile"]
             row = await asyncio.to_thread(
-                service.request, callback.from_user.id,
-                profile.full_name if profile else callback.from_user.full_name,
+                service.request, profile.telegram_user_id, profile.full_name, data["activity"],
+                username=data["username"], telegram_username=profile.telegram_username or "",
+                recommender=profile.recommender, requested_role=data["requested_role"],
             )
         except ValueError as error:
-            await callback.message.answer(html.escape(str(error)))
+            await message.answer(html.escape(str(error)), reply_markup=form_menu())
             return
+        await asyncio.to_thread(service.storage.save_profile, profile)
+        await state.clear()
         if not row["created"]:
-            await callback.message.answer(
+            await message.answer(
                 "Ваш доступ к MCP уже активен. Подключение: /mcp."
                 if row["status"] in {"granted", "delivered"} else
-                "Ваша заявка MCP уже отправлена. После одобрения бот пришлёт подключение."
+                "Ваша заявка MCP уже отправлена. Дождитесь решения Андрея."
             )
             return
         notified = False
         for admin_id in service.admins:
             try:
-                await bot.send_message(admin_id, request_text(row), reply_markup=actions(row["request_id"]))
+                await bot.send_message(admin_id, request_text(row), reply_markup=actions(row["request_id"], row["requested_role"]))
                 notified = True
             except Exception as error:
                 LOGGER.error("MCP request notification failed: %s", type(error).__name__)
-        await callback.message.answer(
-            "Заявка отправлена. После одобрения подключение придёт сюда."
+        await message.answer(
+            f"Заявка отправлена: {html.escape(data['username'])} · {ROLES[data['requested_role']][0]}. После одобрения подключение придёт сюда."
             if notified else
             "Заявка сохранена, но уведомление Андрею не доставлено. Она доступна ему в /mcp_requests."
         )
 
+    @router.callback_query(F.data.startswith("mcp:roles:"))
+    async def choose_role(callback: CallbackQuery) -> None:
+        if callback.from_user.id not in service.admins:
+            await callback.answer("Недостаточно прав.", show_alert=True)
+            return
+        await callback.answer()
+        request_id = callback.data.split(":")[-1]
+        await callback.message.reply(
+            "<b>Какую роль одобрить для этой заявки?</b>\n\n" + "\n\n".join(f"<b>{name}</b>\n{description}" for name, description in ROLES.values()),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=f"Одобрить · {name}", callback_data=f"mcp:grant:{role}:{request_id}")
+            ] for role, (name, _) in ROLES.items()]),
+        )
+
+    @router.callback_query(F.data.startswith("mcp:grant:"))
     @router.callback_query(F.data.startswith("mcp:approve:"))
     @router.callback_query(F.data.startswith("mcp:reject:"))
     async def decide(callback: CallbackQuery, bot: Bot) -> None:
         if callback.from_user.id not in service.admins:
             await callback.answer("Недостаточно прав.", show_alert=True)
             return
-        _, action, request_id = callback.data.split(":")
+        parts = callback.data.split(":")
+        action, request_id = parts[1], parts[-1]
+        role = parts[2] if action == "grant" and len(parts) == 4 else None
         await callback.answer("Обрабатываю…")
         try:
-            if action == "approve":
-                access = await asyncio.to_thread(service.approve, callback.from_user.id, request_id)
+            if action in {"approve", "grant"}:
+                access = await asyncio.to_thread(service.approve, callback.from_user.id, request_id, role)
                 await deliver(bot, access)
             else:
                 user_id = await asyncio.to_thread(service.reject, callback.from_user.id, request_id)
@@ -199,7 +242,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             )
             return
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer("Подключение MCP доставлено участнику." if action == "approve" else "Заявка отклонена.")
+        await callback.message.answer(f"Подключение доставлено: {html.escape(access.get('full_name', ''))} · {ROLES[access['role']][0]}." if action in {"approve", "grant"} else "Заявка отклонена.")
 
     @router.callback_query(F.data == "mcp:show")
     async def show(callback: CallbackQuery, bot: Bot) -> None:

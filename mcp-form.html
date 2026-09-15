@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>BRAIn Lab — доступ к базе знаний</title>
+    <link rel="stylesheet" href="access-form.css">
+    <style>
+        .form-header a { color: var(--accent); text-underline-offset: 4px; }
+        .server-card small { font-size: 12px; line-height: 1.45; }
+        .server-grid + .section-hint, .field + .section-hint { margin: 16px 0 0; }
+        .server-card:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+    </style>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <main class="shell">
+        <header class="form-header">
+            <div class="eyebrow"><span class="status-dot"></span>BRAIn Lab · Knowledge</div>
+            <h1>Подключиться к базе знаний</h1>
+            <p>Статьи, результаты и решения лаборатории — для вас и вашего ИИ-агента.</p>
+            <p><a href="https://brain-lab-research.github.io/claude-brainlab/lab-showcase/#memory" target="_blank" rel="noopener noreferrer">Посмотреть Atlas ↗</a> · открытая демонстрация с учебными данными</p>
+        </header>
+        <form id="server-form" novalidate>
+            <section class="form-section" aria-labelledby="profile-title">
+                <div class="section-number">01</div>
+                <div class="section-content">
+                    <h2 id="profile-title">О вас</h2>
+                    <div class="field-grid">
+                        <label class="field field-wide"><span>Имя и фамилия</span>
+                            <input id="full-name" autocomplete="name" maxlength="120" placeholder="Иван Иванов" required>
+                        </label>
+                        <label class="field field-wide"><span>Ник</span>
+                            <input id="username" autocapitalize="none" autocomplete="username" spellcheck="false" maxlength="32" pattern="[a-z_][a-z0-9_\-]{0,31}" placeholder="ivan_ivanov" required>
+                            <small>Можно использовать тот же ник, что на серверах. Он будет виден в заявке и сообщении о доступе.</small>
+                        </label>
+                        <label class="field field-wide"><span>Рекомендатель</span>
+                            <input id="recommender" maxlength="120" placeholder="Имя или @username" required>
+                            <small>Кто пригласил вас в лабораторию</small>
+                        </label>
+                    </div>
+                </div>
+            </section>
+            <section class="form-section" aria-labelledby="role-title">
+                <div class="section-number">02</div>
+                <div class="section-content">
+                    <h2 id="role-title">Какая роль нужна?</h2>
+                    <p class="section-hint">Вы запрашиваете роль, Андрей одобряет. Для исследовательской работы обычно достаточно участника.</p>
+                    <div class="server-grid">
+                        <label class="server-card"><input type="radio" name="role" value="member" checked>
+                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">MEMBER</span>
+                            <b>Участник</b><small>Читать общую базу, создавать свои проекты и работать в них. В чужих проектах — после приглашения.</small>
+                        </label>
+                        <label class="server-card"><input type="radio" name="role" value="manager">
+                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">MANAGER</span>
+                            <b>Координатор</b><small>Права участника плюс приглашение людей и управление ключами участников. Без автоматической записи во все проекты.</small>
+                        </label>
+                        <label class="server-card"><input type="radio" name="role" value="lead">
+                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">LEAD</span>
+                            <b>Ведущий лаборатории</b><small>Управление всеми проектами, доступами и глобальными ролями.</small>
+                        </label>
+                    </div>
+                    <p class="section-hint">Внутри проекта права выдаются отдельно: читатель, соавтор или руководитель проекта. Это не глобальная роль.</p>
+                </div>
+            </section>
+            <section class="form-section" aria-labelledby="work-title">
+                <div class="section-number">03</div>
+                <div class="section-content">
+                    <h2 id="work-title">Ваша работа</h2>
+                    <label class="field"><span>Чем планируете заниматься <i>необязательно</i></span>
+                        <textarea id="activity" maxlength="500" rows="3" placeholder="Например: разбор статей и сохранение результатов"></textarea>
+                    </label>
+                    <p class="section-hint">Срок доступа: <b>до отзыва ключа</b>. После одобрения бот пришлёт личный ключ, инструкцию и группу тестирования. Серверный аккаунт не требуется.</p>
+                </div>
+            </section>
+            <div id="form-error" class="form-error" role="alert" hidden></div>
+            <div class="submit-dock"><button id="submit-button" class="submit-button" type="submit">
+                <span>Подать заявку</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button></div>
+        </form>
+    </main>
+    <script src="mcp-form.js"></script>
+</body>
+</html>
