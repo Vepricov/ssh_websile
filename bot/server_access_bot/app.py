@@ -30,6 +30,7 @@ from aiogram.types import (
 from .config import Settings
 from .mcp_access import McpAccessService, McpBridge
 from .mcp_router import MCP_MENU, build_mcp_router
+from .mcp_profile import FORM_URL as MCP_FORM_URL
 from .disk_monitoring import (
     DiskMonitor,
     DiskScanner,
@@ -173,7 +174,7 @@ def main_menu(
                 KeyboardButton(text="📚 Сайт и правила"),
                 KeyboardButton(text="📡 Статус серверов"),
             ],
-            [KeyboardButton(text=MCP_MENU)],
+            [KeyboardButton(text=MCP_MENU, web_app=WebAppInfo(url=MCP_FORM_URL))],
         ],
         resize_keyboard=True,
     )

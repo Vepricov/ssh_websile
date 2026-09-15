@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -10,9 +11,9 @@ class Bridge:
     def __init__(self):
         self.calls = []
 
-    def issue(self, user_id, token):
+    def issue(self, user_id, token, role="member"):
         self.calls.append((user_id, token))
-        return {"email": f"telegram-{user_id}@users.brainlab-ai.com", "role": "member"}
+        return {"email": f"telegram-{user_id}@users.brainlab-ai.com", "role": role}
 
     def revoke(self, user_id):
         self.calls.append(("revoke", user_id))
@@ -38,8 +39,8 @@ def test_approval_is_required_and_retry_keeps_the_same_identity_and_secret(tmp_p
 
 def test_failed_remote_reply_can_be_retried_after_restart(tmp_path):
     class LostReply(Bridge):
-        def issue(self, user_id, token):
-            result = super().issue(user_id, token)
+        def issue(self, user_id, token, role="member"):
+            result = super().issue(user_id, token, role)
             if len(self.calls) == 1:
                 raise TimeoutError("reply lost after commit")
             return result
@@ -97,7 +98,7 @@ def test_ssh_transports_secret_only_on_stdin(monkeypatch):
 
     def run(args, **kwargs):
         seen.append((args, kwargs))
-        return CompletedProcess(args, 0, '{"role":"member","email":"telegram-42@users.brainlab-ai.com"}', "")
+        return CompletedProcess(args, 0, '{"role":"member","email":"telegram-42@users.brainlab-ai.com","user_id":"user-42","telegram_user_id":42}', "")
 
     monkeypatch.setattr("server_access_bot.mcp_access.subprocess.run", run)
     McpBridge().issue(42, token)
@@ -113,7 +114,7 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
     from aiogram.client.default import DefaultBotProperties
     from aiogram.client.session.base import BaseSession
     from aiogram.methods import SendMessage
-    from aiogram.types import CallbackQuery, Chat, Message, Update, User
+    from aiogram.types import CallbackQuery, Chat, Message, Update, User, WebAppData
     from server_access_bot.mcp_router import build_mcp_router
 
     class Telegram(BaseSession):
@@ -161,10 +162,14 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
         assert "Для какого проекта" not in intro.text
         assert "Напишите одним сообщением" not in intro.text
         assert "https://brain-lab-research.github.io/claude-brainlab/lab-showcase/" in intro.text
-        assert any(button.text == "Подать заявку" and button.callback_data == "mcp:request"
-                   for row in intro.reply_markup.inline_keyboard for button in row)
+        assert any(button.web_app and button.web_app.url.endswith("/mcp-form.html")
+                   for row in intro.reply_markup.keyboard for button in row)
         assert service.get(42) is None
-        await dispatcher.feed_update(bot, Update(update_id=2, callback_query=callback(42, "mcp:request")))
+        submission = message(42, "")
+        submission = submission.model_copy(update={"web_app_data": WebAppData(button_text="MCP", data=json.dumps(dict(
+            version=1, kind="mcp_request", full_name="Alice Smith", username="alice", recommender="Professor",
+            requested_role="member", activity="", access_term="бессрочно", telegram_user_id=1)))})
+        await dispatcher.feed_update(bot, Update(update_id=2, message=submission))
         row = service.get(42)
         assert row["status"] == "pending"
         assert row["purpose"] == ""
@@ -172,7 +177,7 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
         notices = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1]
         assert len(notices) == 1
         assert "Alice" in notices[0].text and "42" in notices[0].text
-        assert any(b.callback_data == f"mcp:approve:{row['request_id']}"
+        assert any(b.callback_data == f"mcp:grant:member:{row['request_id']}"
                    for line in notices[0].reply_markup.inline_keyboard for b in line)
         await dispatcher.feed_update(bot, Update(update_id=6, callback_query=callback(42, "mcp:request")))
         assert service.get(42)["request_id"] == row["request_id"]
@@ -183,12 +188,12 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
                        for x in telegram.sent)
             await dispatcher.feed_update(bot, Update(update_id=7, message=message(1, "/mcp_requests")))
             recovered = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1][-1]
-            assert any(b.callback_data == f"mcp:approve:{row['request_id']}"
+            assert any(b.callback_data == f"mcp:grant:member:{row['request_id']}"
                        for line in recovered.reply_markup.inline_keyboard for b in line)
 
-        await dispatcher.feed_update(bot, Update(update_id=3, callback_query=callback(43, f"mcp:approve:{row['request_id']}")))
+        await dispatcher.feed_update(bot, Update(update_id=3, callback_query=callback(43, f"mcp:grant:member:{row['request_id']}")))
         assert bridge.calls == []
-        await dispatcher.feed_update(bot, Update(update_id=4, callback_query=callback(1, f"mcp:approve:{row['request_id']}")))
+        await dispatcher.feed_update(bot, Update(update_id=4, callback_query=callback(1, f"mcp:grant:member:{row['request_id']}")))
         assert service.get(42)["status"] == "delivered"
         delivery = next(x for x in telegram.sent if isinstance(x, SendMessage) and "Личный ключ:" in x.text)
         assert delivery.chat_id == 42

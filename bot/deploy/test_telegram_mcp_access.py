@@ -108,5 +108,69 @@ def test_bridge_refuses_privilege_escalation_and_cross_identity_token(scenario):
     with pytest.raises(AuthorizationError):
         grant(service, lead, {**payload, "telegram_user_id": payload["telegram_user_id"] + 1})
     service.set_user_role(lead, member.email, Role.LEAD)
+    assert grant(service, lead, payload)["role"] == "lead"
+
+
+@pytest.mark.parametrize("role", ["member", "manager", "lead"])
+def test_owner_approved_roles_and_idempotent_replay(scenario, role):
+    service, lead, payload = scenario
+    first = grant(service, lead, {**payload, "role": role})
+    assert first["role"] == role
+    assert service.authenticate(payload["token"]).role.value == role
+    assert grant(service, lead, {**payload, "role": "member"}) == first
+
+
+def test_pinned_owner_reuses_existing_lead_without_downgrade(scenario):
+    service, lead, payload = scenario
+    binding = {str(payload["telegram_user_id"]): str(lead.id)}
+    before = service.repository.tokens_of_user(lead.id)
+    result = grant(service, lead, payload, binding)
+    assert result["user_id"] == str(lead.id)
+    assert result["role"] == "lead"
+    assert service.authenticate(payload["token"]).id == lead.id
+    assert service.repository.user_by_email(f"telegram-{payload['telegram_user_id']}@users.brainlab-ai.com") is None
+    assert len(service.repository.tokens_of_user(lead.id)) == len(before) + 1
+    assert grant(service, lead, payload, binding) == result
+
+
+@pytest.mark.parametrize("same_label", [False, True])
+def test_promotion_requires_review_of_other_existing_keys(scenario, same_label):
+    service, lead, payload = scenario
+    result = grant(service, lead, payload)
+    service.issue_agent_token(lead, f"telegram:{payload['telegram_user_id']}" if same_label else "other-device", secrets.token_hex(32), email=result["email"])
     with pytest.raises(AuthorizationError):
-        grant(service, lead, payload)
+        grant(service, lead, {**payload, "role": "lead"})
+    assert service.authenticate(payload["token"]).role is Role.MEMBER
+
+
+def test_verified_owner_repair_is_exact_and_replayable(scenario):
+    import hashlib
+    from repair_telegram_owner import repair_owner
+
+    service, lead, payload = scenario
+    old = grant(service, lead, payload)
+    before = service.repository.tokens_of_user(lead.id)
+    digest = hashlib.sha256(payload["token"].encode()).hexdigest()
+    args = (payload["telegram_user_id"], old["user_id"], str(lead.id), digest)
+    assert repair_owner(service, lead, *args)["changed"] is True
+    assert repair_owner(service, lead, *args)["changed"] is False
+    assert service.authenticate(payload["token"]).id == lead.id
+    assert service.authenticate(payload["token"]).role is Role.LEAD
+    assert service.repository.tokens_of_user(lead.id)[:len(before)] == before
+    assert not service.repository.tokens_of_user(service.repository.user_by_email(old["email"]).id)
+    assert grant(service, lead, payload, {str(payload["telegram_user_id"]): str(lead.id)})["role"] == "lead"
+
+
+def test_owner_repair_refuses_wrong_hash_and_wrong_actor(scenario):
+    import hashlib
+    from repair_telegram_owner import repair_owner
+
+    service, lead, payload = scenario
+    old = grant(service, lead, payload)
+    member = service.authenticate(payload["token"])
+    digest = hashlib.sha256(payload["token"].encode()).hexdigest()
+    with pytest.raises(AuthorizationError):
+        repair_owner(service, lead, payload["telegram_user_id"], old["user_id"], str(lead.id), "0" * 64)
+    with pytest.raises(AuthorizationError):
+        repair_owner(service, member, payload["telegram_user_id"], old["user_id"], str(lead.id), digest)
+    assert service.authenticate(payload["token"]).id == member.id
