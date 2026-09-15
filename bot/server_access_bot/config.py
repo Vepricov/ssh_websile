@@ -15,6 +15,8 @@ class Settings:
     ascend_group_url: str = ""
     demo_user_ids: frozenset[int] = frozenset()
     admin_user_ids: frozenset[int] = frozenset()
+    mcp_admin_user_ids: frozenset[int] = frozenset()
+    mcp_testing_group_url: str = ""
     gpu_monitor_enabled: bool = True
     gpu_monitor_interval_seconds: int = 300
     gpu_idle_memory_threshold_mb: int = 4096
@@ -63,6 +65,12 @@ class Settings:
             ascend_group_url=os.environ.get("ASCEND_GROUP_URL", "").strip(),
             demo_user_ids=demo_user_ids,
             admin_user_ids=admin_user_ids,
+            mcp_admin_user_ids=frozenset(
+                int(value.strip())
+                for value in os.environ.get("MCP_ADMIN_USER_IDS", "").split(",")
+                if value.strip()
+            ),
+            mcp_testing_group_url=os.environ.get("MCP_TESTING_GROUP_URL", "").strip(),
             gpu_monitor_enabled=os.environ.get(
                 "GPU_MONITOR_ENABLED", "true"
             ).lower()

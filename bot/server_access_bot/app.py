@@ -28,6 +28,8 @@ from aiogram.types import (
 )
 
 from .config import Settings
+from .mcp_access import McpAccessService, McpBridge
+from .mcp_router import MCP_MENU, build_mcp_router
 from .disk_monitoring import (
     DiskMonitor,
     DiskScanner,
@@ -171,6 +173,7 @@ def main_menu(
                 KeyboardButton(text="📚 Сайт и правила"),
                 KeyboardButton(text="📡 Статус серверов"),
             ],
+            [KeyboardButton(text=MCP_MENU)],
         ],
         resize_keyboard=True,
     )
@@ -2001,6 +2004,10 @@ async def run(settings: Settings) -> None:
         default=BOT_DEFAULTS,
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
+    dispatcher.include_router(build_mcp_router(
+        McpAccessService(storage, McpBridge(), settings.mcp_admin_user_ids),
+        settings.mcp_testing_group_url,
+    ))
     dispatcher.include_router(
         build_router(
             service,
@@ -2082,6 +2089,7 @@ async def run(settings: Settings) -> None:
             BotCommand(command="myinfo", description="Показать профиль"),
             BotCommand(command="profile", description="Показать профиль"),
             BotCommand(command="servers", description="Показать мои серверы"),
+            BotCommand(command="mcp", description="Доступ к базе знаний лаборатории"),
             BotCommand(command="status", description="Показать загрузку серверов"),
             BotCommand(command="disk_status", description="Показать свободное место"),
             BotCommand(command="demo", description="Безопасно проверить onboarding"),
