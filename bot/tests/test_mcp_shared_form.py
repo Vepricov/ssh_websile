@@ -163,3 +163,41 @@ def test_demo_resource_form_never_submits_a_real_mcp_request(tmp_path):
         assert mcp.get(42) is None and bridge.calls == [] and storage.profile_for(42) is None
         assert any(isinstance(x, SendMessage) and "DEMO · заявка MCP" in x.text for x in telegram.sent)
     asyncio.run(scenario())
+
+
+def test_typed_mcp_application_gets_form_help_without_creating_request(tmp_path):
+    async def scenario():
+        storage = Storage(tmp_path / "db", b"a" * 32)
+        bridge = Bridge()
+        mcp = McpAccessService(storage, bridge, frozenset({1}))
+        telegram = Telegram()
+        bot = Bot("123456:abcdef", session=telegram)
+        dispatcher = Dispatcher()
+        dispatcher.include_router(build_mcp_router(mcp))
+        dispatcher.include_router(build_router(AccessService(storage, Provisioner()), object(),
+                                               admin_user_ids=frozenset({1}), mcp_service=mcp))
+
+        def text(value):
+            return Message(message_id=10, date=datetime.now(timezone.utc),
+                           chat=Chat(id=42, type="private"),
+                           from_user=User(id=42, is_bot=False, first_name="Alice"), text=value)
+
+        await dispatcher.feed_update(bot, Update(update_id=1, message=text("/mcp")))
+        intro = telegram.sent[-1]
+        assert "Нажмите «Заполнить заявку MCP»" in intro.text
+        application = "Alice Smith\nalice\nBob Jones\nУчастник"
+        await dispatcher.feed_update(bot, Update(update_id=2, message=text(application)))
+        reply = telegram.sent[-1]
+        assert "Заявка ещё не отправлена" in reply.text
+        assert any(b.web_app for row in reply.reply_markup.keyboard for b in row)
+        assert mcp.get(42) is None and bridge.calls == []
+        assert not [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1]
+        assert storage.profile_for(42) is None
+
+        await dispatcher.feed_update(bot, Update(update_id=3, message=text("/cancel")))
+        state = dispatcher.fsm.get_context(bot=bot, chat_id=42, user_id=42)
+        assert await state.get_state() is None
+        count = len(telegram.sent)
+        await dispatcher.feed_update(bot, Update(update_id=4, message=text(application)))
+        assert len(telegram.sent) == count
+    asyncio.run(scenario())
