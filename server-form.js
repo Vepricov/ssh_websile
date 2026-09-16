@@ -25,6 +25,14 @@
             .filter(Boolean),
     );
     const storageKey = "brainlab_server_request_v1";
+    const mcpOptions = document.getElementById("mcp-options");
+    const mcpRole = document.getElementById("mcp-role");
+    const termSection = document.querySelector('[aria-labelledby="term-title"]');
+    const roleDescriptions = {
+        member: "Читает общую базу, создаёт проекты; пишет в чужие после приглашения.",
+        manager: "Права участника плюс приглашение людей и управление ключами участников. Не получает запись во все проекты.",
+        lead: "Управляет всеми проектами, доступами и глобальными ролями лаборатории.",
+    };
     let submitted = false;
     let touched = false;
     let saveTimer;
@@ -78,6 +86,7 @@
             ) {
                 accessDate.value = draft.access_term;
             }
+            if (Object.hasOwn(roleDescriptions, draft.mcp_role)) mcpRole.value = draft.mcp_role;
             if (Array.isArray(draft.servers)) {
                 for (const input of form.querySelectorAll('input[name="servers"]')) {
                     input.checked = draft.servers.includes(input.value);
@@ -105,6 +114,7 @@
                 access_term: indefinite.checked ? "бессрочно" : accessDate.value,
                 activity: activity.value,
                 servers: selectedServers(),
+                mcp_role: mcpRole.value,
             }),
         );
     }
@@ -135,6 +145,15 @@
         if (requestedCheckbox && !requestedCheckbox.disabled) {
             requestedCheckbox.checked = true;
         }
+        updateSelection();
+    }
+
+    function updateSelection() {
+        const selected = selectedServers();
+        mcpOptions.hidden = !selected.includes("mcp");
+        termSection.hidden = selected.includes("mcp") && selected.length === 1;
+        accessDate.disabled = termSection.hidden || indefinite.checked;
+        document.getElementById("mcp-role-description").textContent = roleDescriptions[mcpRole.value];
     }
 
     loadDraft();
@@ -155,36 +174,37 @@
         setError(termError, "");
         setError(serversError, "");
         formError.hidden = true;
-        if (!payload.access_term) {
+        const servers = payload.servers.filter((host) => host !== "mcp");
+        if (servers.length && !payload.access_term) {
             setError(termError, "Укажите дату окончания или включите «Бессрочно».");
             valid = false;
-        } else if (payload.access_term !== "бессрочно" && payload.access_term < todayIso) {
+        } else if (servers.length && payload.access_term !== "бессрочно" && payload.access_term < todayIso) {
             setError(termError, "Дата окончания не может быть в прошлом.");
             valid = false;
         }
         if (payload.servers.length === 0) {
-            setError(serversError, "Выберите хотя бы один сервер.");
+            setError(serversError, "Выберите хотя бы один ресурс.");
             valid = false;
         } else if (
-            payload.servers.includes("mlsub")
-            && payload.servers.length > 1
+            servers.includes("mlsub")
+            && servers.length > 1
         ) {
             setError(
                 serversError,
-                "mlsub оформляется отдельной заявкой. Оставьте выбранным только mlsub.",
+                "mlsub оформляется отдельной заявкой. Выберите mlsub без других серверов. MCP можно оставить.",
             );
             valid = false;
         } else if (
-            payload.servers.includes("alibaba_ascend")
-            && payload.servers.length > 1
+            servers.includes("alibaba_ascend")
+            && servers.length > 1
         ) {
             setError(
                 serversError,
-                "Alibaba оформляется отдельной заявкой. Оставьте выбранной только Alibaba.",
+                "Alibaba оформляется отдельной заявкой. Выберите Alibaba без других серверов. MCP можно оставить.",
             );
             valid = false;
         } else if (
-            payload.servers.includes("alibaba_ascend")
+            servers.includes("alibaba_ascend")
             && !/^[a-z][a-z0-9_-]{1,30}$/.test(payload.server_username)
         ) {
             serverUsername.setCustomValidity(
@@ -218,6 +238,7 @@
     });
 
     form.addEventListener("change", () => {
+        updateSelection();
         touched = true;
         serverUsername.setCustomValidity("");
         queueDraftSave();
@@ -232,10 +253,11 @@
             version: 1,
             kind: "server_request",
             server_username: serverUsername.value.trim(),
-            access_term: indefinite.checked ? "бессрочно" : accessDate.value,
+            access_term: termSection.hidden ? "" : (indefinite.checked ? "бессрочно" : accessDate.value),
             activity: activity.value.trim(),
             servers: selectedServers(),
         };
+        if (payload.servers.includes("mcp")) payload.mcp_role = mcpRole.value;
         if (!validateSelection(payload)) {
             return;
         }

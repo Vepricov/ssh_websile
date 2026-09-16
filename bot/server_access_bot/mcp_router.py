@@ -83,6 +83,34 @@ def welcome_text(access: dict, group_url: str = "") -> str:
     return text
 
 
+async def submit_application(message: Message, bot: Bot, service: McpAccessService, data: dict) -> None:
+    profile = data["profile"]
+    row = await asyncio.to_thread(
+        service.request, profile.telegram_user_id, profile.full_name, data["activity"],
+        username=data["username"], telegram_username=profile.telegram_username or "",
+        recommender=profile.recommender, requested_role=data["requested_role"],
+    )
+    if not row["created"]:
+        await message.answer(
+            "Ваш доступ к MCP уже активен. Подключение: /mcp."
+            if row["status"] in {"granted", "delivered"} else
+            "Ваша заявка MCP уже отправлена. Дождитесь решения Андрея."
+        )
+        return
+    notified = False
+    for admin_id in service.admins:
+        try:
+            await bot.send_message(admin_id, request_text(row), reply_markup=actions(row["request_id"], row["requested_role"]))
+            notified = True
+        except Exception as error:
+            LOGGER.error("MCP request notification failed: %s", type(error).__name__)
+    await message.answer(
+        f"Заявка отправлена: {html.escape(data['username'])} · {ROLES[data['requested_role']][0]}. После одобрения подключение придёт сюда."
+        if notified else
+        "Заявка сохранена, но уведомление Андрею не доставлено. Она доступна ему в /mcp_requests."
+    )
+
+
 def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
     router = Router(name="mcp_access")
     router.message.filter(F.chat.type == ChatType.PRIVATE)
@@ -169,35 +197,12 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
         try:
             data = parse_application(message.from_user, message.web_app_data.data)
             profile = data["profile"]
-            row = await asyncio.to_thread(
-                service.request, profile.telegram_user_id, profile.full_name, data["activity"],
-                username=data["username"], telegram_username=profile.telegram_username or "",
-                recommender=profile.recommender, requested_role=data["requested_role"],
-            )
         except ValueError as error:
             await message.answer(html.escape(str(error)), reply_markup=form_menu())
             return
         await asyncio.to_thread(service.storage.save_profile, profile)
         await state.clear()
-        if not row["created"]:
-            await message.answer(
-                "Ваш доступ к MCP уже активен. Подключение: /mcp."
-                if row["status"] in {"granted", "delivered"} else
-                "Ваша заявка MCP уже отправлена. Дождитесь решения Андрея."
-            )
-            return
-        notified = False
-        for admin_id in service.admins:
-            try:
-                await bot.send_message(admin_id, request_text(row), reply_markup=actions(row["request_id"], row["requested_role"]))
-                notified = True
-            except Exception as error:
-                LOGGER.error("MCP request notification failed: %s", type(error).__name__)
-        await message.answer(
-            f"Заявка отправлена: {html.escape(data['username'])} · {ROLES[data['requested_role']][0]}. После одобрения подключение придёт сюда."
-            if notified else
-            "Заявка сохранена, но уведомление Андрею не доставлено. Она доступна ему в /mcp_requests."
-        )
+        await submit_application(message, bot, service, data)
 
     @router.callback_query(F.data.startswith("mcp:roles:"))
     async def choose_role(callback: CallbackQuery) -> None:

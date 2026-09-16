@@ -559,3 +559,12 @@ textarea {
         transition-duration: 1ms !important;
     }
 }
+
+/* The resource picker also accepts an independently approved MCP application. */
+.server-grid + .section-hint { margin-top: 18px; }
+.mcp-options { grid-column: 1 / -1; min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.mcp-options[hidden], .form-section[hidden] { display: none; }
+.mcp-options p { margin: 14px 0; color: var(--text); font-size: 13px; line-height: 1.6; }
+.mcp-options a { color: var(--accent); font-size: 13px; text-underline-offset: 3px; }
+.mcp-options select { width: 100%; min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; }
+.mcp-options select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

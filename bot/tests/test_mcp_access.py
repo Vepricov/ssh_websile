@@ -162,7 +162,7 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
         assert "Для какого проекта" not in intro.text
         assert "Напишите одним сообщением" not in intro.text
         assert "https://brain-lab-research.github.io/claude-brainlab/lab-showcase/" in intro.text
-        assert any(button.web_app and button.web_app.url.endswith("/mcp-form.html")
+        assert any(button.web_app and "/server-form.html?server=mcp" in button.web_app.url
                    for row in intro.reply_markup.keyboard for button in row)
         assert service.get(42) is None
         submission = message(42, "")

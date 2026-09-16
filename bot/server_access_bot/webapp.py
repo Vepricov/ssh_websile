@@ -3,6 +3,7 @@ import json
 from aiogram.types import User
 
 from .domain import Profile, ServerRequest
+from .mcp_profile import ROLES
 
 FIELD_LIMITS = {
     "full_name": 120,
@@ -71,13 +72,17 @@ def parse_web_app_data(user: User, raw_data: str) -> Profile | ServerRequest:
         not isinstance(host, str) for host in servers
     ):
         raise _invalid_payload()
-    if len(servers) > 4 or len(servers) != len(set(servers)):
+    if len(servers) > 4 + int("mcp" in servers) or len(servers) != len(set(servers)):
         raise _invalid_payload()
+    mcp_role = data.get("mcp_role") if "mcp" in servers else None
+    if "mcp" in servers and (not isinstance(mcp_role, str) or mcp_role not in ROLES):
+        raise WebAppPayloadError("Выберите роль MCP из списка.")
     return ServerRequest(
         telegram_user_id=user.id,
         telegram_username=user.username,
         server_username=data["server_username"].strip(),
         access_term=data["access_term"].strip(),
         activity=data.get("activity", "").strip(),
-        servers=tuple(servers),
+        servers=tuple(host for host in servers if host != "mcp"),
+        mcp_role=mcp_role,
     )
