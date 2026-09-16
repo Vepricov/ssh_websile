@@ -17,6 +17,7 @@ class ServerRequest:
     access_term: str
     activity: str
     servers: tuple[str, ...]
+    mcp_role: str | None = None
 
 
 @dataclass(frozen=True)

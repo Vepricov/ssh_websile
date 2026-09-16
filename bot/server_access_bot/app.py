@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import html
+import json
 import logging
 import secrets
 import time
@@ -29,8 +30,8 @@ from aiogram.types import (
 
 from .config import Settings
 from .mcp_access import McpAccessService, McpBridge
-from .mcp_router import MCP_MENU, build_mcp_router
-from .mcp_profile import FORM_URL as MCP_FORM_URL
+from .mcp_router import MCP_MENU, build_mcp_router, submit_application as submit_mcp_application
+from .mcp_profile import parse_application as parse_mcp_application
 from .disk_monitoring import (
     DiskMonitor,
     DiskScanner,
@@ -72,7 +73,7 @@ from .sheets import (
     normalize_telegram_username,
 )
 from .storage import PendingRequestExistsError, RegistryAlreadyClaimedError, Storage
-from .webapp import WebAppPayloadError, parse_web_app_data
+from .webapp import parse_web_app_data
 
 LOGGER = logging.getLogger(__name__)
 RULES_URL = "https://vepricov.github.io/ssh_websile"
@@ -144,7 +145,8 @@ def server_form_url(
         query["username"] = server_username
     if existing_services:
         query["existing"] = ",".join(dict.fromkeys(existing_services))
-    return SERVER_FORM_URL if not query else f"{SERVER_FORM_URL}?{urlencode(query)}"
+    query["v"] = "mcp-resource-20260916"
+    return f"{SERVER_FORM_URL}?{urlencode(query)}"
 
 
 def main_menu(
@@ -174,7 +176,7 @@ def main_menu(
                 KeyboardButton(text="📚 Сайт и правила"),
                 KeyboardButton(text="📡 Статус серверов"),
             ],
-            [KeyboardButton(text=MCP_MENU, web_app=WebAppInfo(url=MCP_FORM_URL))],
+            [KeyboardButton(text=MCP_MENU, web_app=WebAppInfo(url=server_form_url(requested_server="mcp", server_username=server_username, existing_services=existing_services)))],
         ],
         resize_keyboard=True,
     )
@@ -873,6 +875,7 @@ def build_router(
     process_controller: GpuProcessController | None = None,
     gpu_status_scanner: GpuStatusScanner | None = None,
     disk_scanner: DiskScanner | None = None,
+    mcp_service: McpAccessService | None = None,
 ) -> Router:
     router = Router()
 
@@ -1143,9 +1146,22 @@ def build_router(
                     reply_markup=await personalized_main_menu(message.from_user.id),
                 )
                 return
-            application = application_from_request(profile, submission)
-            validate(application)
-        except (WebAppPayloadError, ValidationError) as error:
+            mcp_data = None
+            if submission.mcp_role:
+                mcp_data = parse_mcp_application(message.from_user, json.dumps({
+                    "version": 1, "kind": "mcp_request", "full_name": profile.full_name,
+                    "username": submission.server_username, "recommender": profile.recommender,
+                    "requested_role": submission.mcp_role, "activity": submission.activity,
+                    "access_term": "бессрочно",
+                }))
+                if not is_demo and (mcp_service is None or not mcp_service.admins):
+                    raise ValidationError("Выдача доступа MCP пока не настроена.")
+            application = application_from_request(profile, submission) if submission.servers else None
+            if application is not None:
+                validate(application)
+            elif mcp_data is None:
+                raise ValidationError("Выберите хотя бы один ресурс.")
+        except ValueError as error:
             await message.answer(
                 str(error),
                 reply_markup=await personalized_main_menu(message.from_user.id),
@@ -1154,24 +1170,31 @@ def build_router(
         if is_demo:
             accesses = demo_accesses(
                 application.server_username, application.servers
-            )
+            ) if application is not None else []
             await state.clear()
             await message.answer(
                 "<b>DEMO · реальные серверы не изменялись</b>\n\n"
                 + server_dashboard_text(accesses)
+                + ("\n\nDEMO · заявка MCP: " + submission.mcp_role + ". Доступ не выдавался." if mcp_data else "")
                 + "\n\nПароль <code>DEMO-PASSWORD</code> ненастоящий.",
                 protect_content=True,
                 reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
         try:
-            await asyncio.to_thread(service.validate_request, application)
+            if application is not None:
+                await asyncio.to_thread(service.validate_request, application)
         except ValidationError as error:
             await message.answer(
                 str(error),
                 reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
+        if mcp_data is not None:
+            await submit_mcp_application(message, bot, mcp_service, mcp_data)
+            if application is None:
+                await state.clear()
+                return
         known_user = await asyncio.to_thread(
             service.storage.application_for, message.from_user.id
         )
@@ -2005,8 +2028,9 @@ async def run(settings: Settings) -> None:
         default=BOT_DEFAULTS,
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
+    mcp_service = McpAccessService(storage, McpBridge(), settings.mcp_admin_user_ids)
     dispatcher.include_router(build_mcp_router(
-        McpAccessService(storage, McpBridge(), settings.mcp_admin_user_ids),
+        mcp_service,
         settings.mcp_testing_group_url,
     ))
     dispatcher.include_router(
@@ -2018,6 +2042,7 @@ async def run(settings: Settings) -> None:
             process_controller,
             gpu_status_scanner,
             disk_scanner,
+            mcp_service=mcp_service,
         )
     )
     monitor_task = None

@@ -230,7 +230,7 @@ def test_add_server_button_opens_prefilled_server_form() -> None:
 
     button = menu.keyboard[0][0]
     assert button.web_app is not None
-    assert button.web_app.url.endswith("/server-form.html?server=brain_lab")
+    assert button.web_app.url.endswith("/server-form.html?server=brain_lab&v=mcp-resource-20260916")
 
 
 def test_server_form_url_prefills_username_and_existing_accesses() -> None:
@@ -242,7 +242,7 @@ def test_server_form_url_prefills_username_and_existing_accesses() -> None:
 
     assert url == (
         "https://vepricov.github.io/ssh_websile/server-form.html?"
-        "server=vv_h200&username=alice&existing=shkodnik_opt%2Cbrain_lab%2Cyandex"
+        "server=vv_h200&username=alice&existing=shkodnik_opt%2Cbrain_lab%2Cyandex&v=mcp-resource-20260916"
     )
 
 
@@ -388,7 +388,7 @@ def test_main_menu_exposes_profile_catalog_info_and_access_actions() -> None:
     access_button = MAIN_MENU.keyboard[1][1]
     assert access_button.web_app is not None
     assert access_button.web_app.url == (
-        "https://vepricov.github.io/ssh_websile/server-form.html"
+        "https://vepricov.github.io/ssh_websile/server-form.html?v=mcp-resource-20260916"
     )
 
 
@@ -401,7 +401,7 @@ def test_main_menu_personalizes_access_form_from_saved_account() -> None:
     access_button = menu.keyboard[1][1]
     assert access_button.web_app is not None
     assert access_button.web_app.url.endswith(
-        "?username=alice&existing=brain_lab%2Cshkodnik_opt"
+        "?username=alice&existing=brain_lab%2Cshkodnik_opt&v=mcp-resource-20260916"
     )
 
 

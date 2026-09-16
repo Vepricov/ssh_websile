@@ -4,15 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
-    <title>BRAIn Lab — серверы</title>
-    <link rel="stylesheet" href="access-form.css">
+    <title>BRAIn Lab — доступы</title>
+    <link rel="stylesheet" href="access-form.css?v=mcp-resource-20260916">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
     <main class="shell">
         <header class="form-header">
-            <div class="eyebrow"><span class="status-dot"></span>BRAIn Lab · Servers</div>
-            <h1>Добавиться на сервер</h1>
+            <div class="eyebrow"><span class="status-dot"></span>BRAIn Lab · Access</div>
+            <h1>Получить доступ</h1>
         </header>
 
         <form id="server-form" novalidate>
@@ -21,9 +21,9 @@
                 <div class="section-content">
                     <h2 id="account-title">Учётная запись</h2>
                     <label class="field">
-                        <span>Ник на сервере</span>
+                        <span>Ник</span>
                         <div class="input-prefix"><b>$</b><input id="server-username" name="server_username" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" maxlength="32" pattern="[a-z_][a-z0-9_\-]{0,31}" placeholder="ivan_ivanov" required></div>
-                        <small>Один ник используется на всех серверах</small>
+                        <small>Один ник для серверов и базы знаний MCP</small>
                     </label>
                 </div>
             </section>
@@ -31,7 +31,7 @@
             <section class="form-section" aria-labelledby="term-title">
                 <div class="section-number">02</div>
                 <div class="section-content">
-                    <h2 id="term-title">Срок доступа</h2>
+                    <h2 id="term-title">Срок доступа к серверам</h2>
                     <div class="term-control">
                         <label class="field date-field">
                             <span>Дата окончания</span>
@@ -50,9 +50,29 @@
             <section class="form-section" aria-labelledby="servers-title">
                 <div class="section-number">03</div>
                 <div class="section-content">
-                    <h2 id="servers-title">Серверы</h2>
+                    <h2 id="servers-title">Серверы и база знаний</h2>
                     <p class="section-hint">Можно выбрать несколько</p>
                     <div class="server-grid">
+                        <label class="server-card service-card">
+                            <input type="checkbox" name="servers" value="mcp">
+                            <span class="server-check" aria-hidden="true">✓</span>
+                            <span class="server-kicker">KNOWLEDGE</span>
+                            <b>База знаний MCP</b>
+                            <small>Статьи, результаты и выводы лаборатории для вас и ваших ИИ-агентов</small>
+                        </label>
+                        <div class="mcp-options" id="mcp-options" hidden>
+                            <label class="field">
+                                <span>Роль в MCP</span>
+                                <select id="mcp-role" name="mcp_role">
+                                    <option value="member">Участник</option>
+                                    <option value="manager">Координатор</option>
+                                    <option value="lead">Ведущий лаборатории</option>
+                                </select>
+                                <small id="mcp-role-description">Читает общую базу, создаёт проекты; пишет в чужие после приглашения.</small>
+                            </label>
+                            <p>Роль одобряет Андрей. Доступ к MCP действует до отзыва ключа; серверный аккаунт не требуется.</p>
+                            <a href="https://brain-lab-research.github.io/claude-brainlab/lab-showcase/#memory" target="_blank" rel="noopener noreferrer">Посмотреть базу и возможности MCP ↗</a>
+                        </div>
                         <label class="server-card">
                             <input type="checkbox" name="servers" value="shkodnik_opt">
                             <span class="server-check" aria-hidden="true">✓</span>
@@ -121,6 +141,6 @@
             </div>
         </form>
     </main>
-    <script src="server-form.js"></script>
+    <script src="server-form.js?v=mcp-resource-20260916"></script>
 </body>
 </html>
