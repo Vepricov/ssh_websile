@@ -6,6 +6,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup, WebAppInfo
 
 from .mcp_access import McpAccessService
@@ -16,6 +17,17 @@ MCP_MENU = "🧠 База знаний MCP"
 ATLAS_URL = "https://brain-lab-research.github.io/claude-brainlab/lab-showcase/#memory"
 GUIDE_URL = "https://github.com/brain-lab-research/claude-brainlab/blob/main/docs/mcp-onboarding.md"
 MCP_URL = "https://68-183-24-188.sslip.io:9443/mcp"
+
+
+class McpForm(StatesGroup):
+    waiting_for_form = State()
+
+
+FORM_HINT = (
+    "Нажмите «Заполнить заявку MCP» на клавиатуре бота и отправьте открывшуюся форму. "
+    "Если кнопки скрыты, сверните клавиатуру ввода и раскройте кнопки бота. "
+    "Сообщение с анкетой в чате не подаёт заявку."
+)
 
 
 def form_menu() -> ReplyKeyboardMarkup:
@@ -172,6 +184,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
         if row and row["status"] in {"pending", "approved"}:
             await message.answer("Ваша заявка MCP уже отправлена. После одобрения бот пришлёт подключение.")
             return
+        await state.set_state(McpForm.waiting_for_form)
         await message.answer(
             "<b>Lab Knowledge MCP — общая база исследований</b>\n\n"
             "Подключите её к своему ИИ-агенту: он сможет искать статьи и результаты "
@@ -179,7 +192,9 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             "сохранять ваши выводы и решения.\n\n"
             f'<a href="{ATLAS_URL}">Посмотреть, как это работает, на сайте Atlas</a> — '
             "сайт открыт всем, данные в нём вымышленные.\n\n"
-            "Заполните заявку: ФИО, ник, рекомендатель и желаемая роль. После одобрения "
+            f"{FORM_HINT}\n\n"
+            "В форме укажите ник и выберите роль MCP. ФИО и рекомендатель берутся из "
+            "«Мой профиль» в главном меню; заполните профиль, если ещё не сделали этого. После одобрения "
             "Андреем бот пришлёт личный ключ, инструкцию подключения и группу тестирования.",
             reply_markup=form_menu(),
         )
@@ -187,7 +202,13 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
     @router.callback_query(F.data == "mcp:request")
     async def old_request(callback: CallbackQuery) -> None:
         await callback.answer()
-        await callback.message.answer("Заполните заявку в форме.", reply_markup=form_menu())
+        await callback.message.answer(FORM_HINT, reply_markup=form_menu())
+
+    @router.message(McpForm.waiting_for_form, F.text.contains("\n"), ~F.text.startswith("/"))
+    async def typed_application(message: Message) -> None:
+        await message.answer(
+            f"Заявка ещё не отправлена.\n\n{FORM_HINT}", reply_markup=form_menu(),
+        )
 
     @router.message(F.web_app_data.data.func(is_application))
     async def request(message: Message, bot: Bot, state: FSMContext) -> None:
