@@ -992,6 +992,38 @@ class Storage:
                 ).fetchone()
         return None if row is None else str(row["server_username"])
 
+    def _telegram_user_ids_for_access_username(
+        self, server_username: str, *, host: str | None = None
+    ) -> set[int]:
+        normalized = server_username.strip().casefold()
+        if not normalized:
+            return set()
+        with self._connect() as db:
+            if host is None:
+                rows = db.execute(
+                    "SELECT telegram_user_id, secret FROM accesses"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """
+                    SELECT telegram_user_id, secret FROM accesses
+                    WHERE host = ?
+                    """,
+                    (host,),
+                ).fetchall()
+        owners: set[int] = set()
+        for row in rows:
+            telegram_user_id = int(row["telegram_user_id"])
+            secret = bytes(row["secret"])
+            payload = json.loads(
+                self.cipher.decrypt(
+                    secret[:12], secret[12:], str(telegram_user_id).encode()
+                )
+            )
+            if str(payload.get("username", "")).strip().casefold() == normalized:
+                owners.add(telegram_user_id)
+        return owners
+
     def telegram_user_id_for_server_username(self, server_username: str) -> int | None:
         with self._connect() as db:
             rows = db.execute(
@@ -1006,34 +1038,23 @@ class Storage:
                 """,
                 (server_username,),
             ).fetchall()
-        if len(rows) != 1:
+        owners = {int(row["telegram_user_id"]) for row in rows}
+        owners.update(self._telegram_user_ids_for_access_username(server_username))
+        if len(owners) != 1:
             return None
-        return int(rows[0]["telegram_user_id"])
+        return next(iter(owners))
 
     def telegram_user_id_for_host_server_username(
         self, host: str, server_username: str
     ) -> int | None:
-        with self._connect() as db:
-            rows = db.execute(
-                """
-                SELECT DISTINCT telegram_user_id FROM (
-                    SELECT u.telegram_user_id
-                    FROM users u
-                    JOIN accesses a USING (telegram_user_id)
-                    WHERE u.server_username = ? AND a.host = ?
-                    UNION ALL
-                    SELECT r.telegram_user_id
-                    FROM registry_users r
-                    JOIN registry_services s USING (telegram_user_id)
-                    WHERE r.server_username = ? AND s.host = ?
-                )
-                LIMIT 2
-                """,
-                (server_username, host, server_username, host),
-            ).fetchall()
-        if len(rows) != 1:
+        access_owners = self._telegram_user_ids_for_access_username(
+            server_username, host=host
+        )
+        if len(access_owners) == 1:
+            return next(iter(access_owners))
+        if len(access_owners) > 1:
             return None
-        return int(rows[0]["telegram_user_id"])
+        return self.telegram_user_id_for_server_username(server_username)
 
     def application_for(self, telegram_user_id: int) -> Application | None:
         with self._connect() as db:

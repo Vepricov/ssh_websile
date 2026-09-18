@@ -17,6 +17,7 @@ from server_access_bot.disk_monitoring import (
 from server_access_bot.domain import (
     Application,
     DiskUsageSample,
+    Profile,
     ProvisionedAccess,
     RegistryMatch,
     ServerChatBinding,
@@ -652,7 +653,7 @@ def test_moving_to_sixth_place_without_freeing_space_is_not_success(tmp_path) ->
     assert bot.messages == []
 
 
-def test_disk_owner_lookup_requires_access_to_the_same_host(tmp_path) -> None:
+def test_disk_owner_lookup_falls_back_to_global_registry_identity(tmp_path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
     match = RegistryMatch(
         telegram_username="alice_tg",
@@ -673,8 +674,34 @@ def test_disk_owner_lookup_requires_access_to_the_same_host(tmp_path) -> None:
     )
     assert (
         storage.telegram_user_id_for_host_server_username("vv_h200", "alice")
-        is None
+        == 101
     )
+
+
+def test_disk_owner_lookup_uses_per_host_access_username(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    storage.save_profile(
+        Profile(101, "shkodnik1917", "Andrey Example", "Self")
+    )
+    storage.save_access(
+        101,
+        ProvisionedAccess(
+            "shkodnik_opt",
+            "shkodnik",
+            "secret",
+            "ssh shkodnik@example.org",
+            "",
+            False,
+        ),
+    )
+
+    assert (
+        storage.telegram_user_id_for_host_server_username(
+            "shkodnik_opt", "shkodnik"
+        )
+        == 101
+    )
+    assert storage.telegram_user_id_for_server_username("shkodnik") == 101
 
 
 def test_disk_status_lists_free_space_and_unreachable_servers() -> None:
