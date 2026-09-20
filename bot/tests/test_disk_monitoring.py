@@ -393,7 +393,7 @@ def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
     user_message = next(item for item in bot.messages if item[0] == 101)
     assert "700.0 GB" in user_message[1]
     assert "осталось 4.0%" in user_message[1]
-    assert user_message[2]["protect_content"] is True
+    assert user_message[2]["protect_content"] is False
     assert (
         user_message[2]["reply_markup"].inline_keyboard[0][0].callback_data
         .startswith("disk:cleaned:")

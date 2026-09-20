@@ -241,6 +241,7 @@ def test_notification_uses_public_server_name_and_marks_delivery(tmp_path) -> No
     assert "9.0 GB" in bot.messages[0][1]
     assert "PID: <code>101, 102</code>" in bot.messages[0][1]
     assert format_user_idle_notification((incident,)) == bot.messages[0][1]
+    assert bot.messages[0][2]["protect_content"] is False
     keyboard = bot.messages[0][2]["reply_markup"]
     callback_data = keyboard.inline_keyboard[0][0].callback_data
     assert callback_data.startswith("gpu:stop:")

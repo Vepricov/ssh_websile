@@ -667,7 +667,7 @@ async def deliver_disk_cleanup_requests(
                     await bot.send_message(
                         telegram_user_id,
                         user_text,
-                        protect_content=True,
+                        protect_content=False,
                         reply_markup=InlineKeyboardMarkup(
                             inline_keyboard=[
                                 [

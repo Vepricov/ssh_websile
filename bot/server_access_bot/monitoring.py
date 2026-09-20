@@ -628,7 +628,7 @@ async def deliver_gpu_idle_incidents(
                             incident.key,
                         )
             try:
-                send_options = {"protect_content": True}
+                send_options = {"protect_content": False}
                 if action_buttons:
                     send_options["reply_markup"] = InlineKeyboardMarkup(
                         inline_keyboard=action_buttons
