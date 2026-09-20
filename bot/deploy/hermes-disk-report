@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+HOME_SCAN = "/usr/local/sbin/hermes-home-scan"
+
 
 def fail(message: str, code: int = 2) -> None:
     print(message, file=sys.stderr)
@@ -194,6 +196,22 @@ def top_home_cache(
     return directories
 
 
+def request_home_scan() -> None:
+    if not os.access(HOME_SCAN, os.X_OK):
+        return
+    try:
+        subprocess.Popen(
+            ["nice", "-n", "19", "ionice", "-c", "3", HOME_SCAN],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError:
+        return
+
+
 def top_home() -> None:
     user_root = "/data/users" if os.path.isdir("/data/users") else "/home"
     if not os.path.isdir(user_root):
@@ -223,7 +241,9 @@ def top_home() -> None:
         if directories is not None:
             source_name = "cache"
     if directories is None:
+        request_home_scan()
         directories = []
+        source_name = "refreshing"
     directories.sort(key=lambda item: int(item["size_bytes"]), reverse=True)
     print(json.dumps({"directories": directories[:10], "source": source_name}))
 

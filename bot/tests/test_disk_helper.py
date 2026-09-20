@@ -192,6 +192,32 @@ def test_top_home_returns_ten_largest_directories(monkeypatch, capsys) -> None:
     assert payload["directories"][-1]["path"] == "/home/user2"
 
 
+def test_top_home_requests_background_scan_when_cache_is_missing(
+    monkeypatch, capsys
+) -> None:
+    helper = load_helper()
+    requested = []
+    monkeypatch.setattr(helper.os.path, "isdir", lambda path: path == "/data/users")
+    monkeypatch.setattr(
+        helper,
+        "run",
+        lambda command, timeout=30: subprocess.CompletedProcess(
+            command, 0, "ext4 /dev/nvme1n1\n", ""
+        ),
+    )
+    monkeypatch.setattr(helper, "top_home_quota", lambda _user_root: None)
+    monkeypatch.setattr(helper, "top_home_cache", lambda **_kwargs: None)
+    monkeypatch.setattr(helper, "request_home_scan", lambda: requested.append(True))
+
+    helper.top_home()
+
+    assert requested == [True]
+    assert json.loads(capsys.readouterr().out) == {
+        "directories": [],
+        "source": "refreshing",
+    }
+
+
 def test_home_scan_timer_is_low_priority_and_bounded() -> None:
     deploy = Path(__file__).parents[1] / "deploy"
     scanner = (deploy / "hermes-home-scan").read_text(encoding="utf-8")
