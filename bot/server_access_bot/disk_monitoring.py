@@ -26,6 +26,7 @@ HOME_NOTIFY_COOLDOWN_SECONDS = 86400
 HOME_CLEANED_MIN_BYTES = 50 * 1024**3
 HOME_NOTIFY_FREE_PERCENT = 15
 HOME_ADMIN_FREE_PERCENT = 5
+MONITORED_FILESYSTEM_PATHS = frozenset({"/", "/home", "/data"})
 
 
 @dataclass(frozen=True)
@@ -235,7 +236,7 @@ class DiskScanner:
             if (
                 not isinstance(paths, list)
                 or not paths
-                or any(path not in {"/", "/home"} for path in paths)
+                or any(path not in MONITORED_FILESYSTEM_PATHS for path in paths)
             ):
                 return None
             values = [

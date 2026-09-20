@@ -57,7 +57,16 @@ def test_disk_scanner_parses_filesystems_and_marks_unreachable_host() -> None:
                     "available_bytes": 100,
                     "total_inodes": 200,
                     "free_inodes": 50,
-                }
+                },
+                {
+                    "key": "dev:84",
+                    "paths": ["/data"],
+                    "total_bytes": 14_000,
+                    "used_bytes": 13_400,
+                    "available_bytes": 600,
+                    "total_inodes": 400,
+                    "free_inodes": 100,
+                },
             ]
         }
     )
@@ -73,6 +82,8 @@ def test_disk_scanner_parses_filesystems_and_marks_unreachable_host() -> None:
     assert statuses[0].reachable is True
     assert statuses[0].filesystems[0].paths == ("/", "/home")
     assert statuses[0].filesystems[0].used_bytes == 900
+    assert statuses[0].filesystems[1].paths == ("/data",)
+    assert statuses[0].filesystems[1].available_bytes == 600
     assert statuses[1].host == "vv_h200"
     assert statuses[1].reachable is False
 

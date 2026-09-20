@@ -39,7 +39,7 @@ def zfs_filesystem_usage(source: str) -> dict[str, int] | None:
 
 def filesystem_summary() -> None:
     filesystems: dict[int, dict[str, object]] = {}
-    for path in ("/", "/home"):
+    for path in ("/", "/home", "/data"):
         if not os.path.exists(path):
             continue
         device = os.stat(path).st_dev
