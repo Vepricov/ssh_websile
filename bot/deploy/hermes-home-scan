@@ -11,6 +11,10 @@ outdir=/var/lib/hermes-home-scan
 lockfile=/run/hermes-home-scan.lock
 stamp=$(date -u +%Y%m%d-%H%M%S)
 prefix="$outdir/home-$stamp"
+user_root=/home
+if [[ -d /data/users ]]; then
+    user_root=/data/users
+fi
 
 install -d -o root -g root -m 0755 "$outdir"
 exec 9>"$lockfile"
@@ -19,7 +23,7 @@ if ! flock -n 9; then
     exit 3
 fi
 
-/usr/local/sbin/hermes-fast-du /home "$prefix" --workers 4
+/usr/local/sbin/hermes-fast-du "$user_root" "$prefix" --workers 4
 
 python3 - "$prefix.tsv" "$outdir/latest.tsv" <<'PY'
 import os

@@ -27,6 +27,12 @@ HOME_CLEANED_MIN_BYTES = 50 * 1024**3
 HOME_NOTIFY_FREE_PERCENT = 15
 HOME_ADMIN_FREE_PERCENT = 5
 MONITORED_FILESYSTEM_PATHS = frozenset({"/", "/home", "/data"})
+DEFAULT_USER_STORAGE = ("/home", "/home")
+USER_STORAGE_BY_HOST = {"vv_h200": ("/data", "/data/users")}
+
+
+def _user_storage(host: str) -> tuple[str, str]:
+    return USER_STORAGE_BY_HOST.get(host, DEFAULT_USER_STORAGE)
 
 
 @dataclass(frozen=True)
@@ -161,6 +167,7 @@ class DiskScanner:
         if not isinstance(rows, list):
             return ()
         directories = []
+        user_root = _user_storage(host)[1]
         for row in rows[:10]:
             if not isinstance(row, dict):
                 return ()
@@ -168,7 +175,8 @@ class DiskScanner:
             size = row.get("size_bytes")
             if (
                 not isinstance(path, str)
-                or not path.startswith("/home/")
+                or not path.startswith(f"{user_root}/")
+                or path.count("/") != user_root.count("/") + 1
                 or type(size) is not int
                 or size < 0
             ):
@@ -508,6 +516,7 @@ def _home_cleanup_text(
 ) -> str:
     server_location = html.escape(SERVER_LOCATIONS.get(host, host))
     safe_username = html.escape(username)
+    filesystem_path, user_root = _user_storage(host)
     free_percent = (
         100 * sample.available_bytes / sample.total_bytes
         if sample.total_bytes
@@ -516,9 +525,9 @@ def _home_cleanup_text(
     return (
         "🧹 <b>Нужно освободить место</b>\n\n"
         f"Привет! На <b>{server_location}</b> каталог "
-        f"<code>/home/{safe_username}</code> занимает "
+        f"<code>{html.escape(user_root)}/{safe_username}</code> занимает "
         f"<b>{_format_bytes(size_bytes)}</b>. Это {rank}-е место по объёму.\n\n"
-        f"В <code>/home</code> осталось {free_percent:.1f}% "
+        f"На <code>{html.escape(filesystem_path)}</code> осталось {free_percent:.1f}% "
         f"({_format_bytes(sample.available_bytes)}). "
         "Пожалуйста, удали ненужные checkpoints, датасеты и кеши. "
         "Когда закончишь, нажми «Почистил», и бот проверит следующий замер."
@@ -572,8 +581,9 @@ async def deliver_disk_cleanup_requests(
 ) -> tuple[tuple[str, str], ...]:
     delivered: list[tuple[str, str]] = []
     for host in scanner.hosts:
+        filesystem_path, user_root = _user_storage(host)
         sample = await asyncio.to_thread(
-            storage.latest_disk_sample_for_path, host, "/home"
+            storage.latest_disk_sample_for_path, host, filesystem_path
         )
         if sample is None or sample.total_bytes <= 0:
             continue
@@ -591,7 +601,7 @@ async def deliver_disk_cleanup_requests(
             continue
         top_five = tuple(top_home[:HOME_NOTIFY_MAX_USERS])
         current_by_username = {
-            item.path.removeprefix("/home/"): (rank, item)
+            item.path.removeprefix(f"{user_root}/"): (rank, item)
             for rank, item in enumerate(top_home, start=1)
         }
         for request in active:
@@ -622,7 +632,7 @@ async def deliver_disk_cleanup_requests(
         for rank, item in enumerate(top_five, start=1):
             if item.size_bytes < HOME_NOTIFY_MIN_BYTES:
                 continue
-            username = item.path.removeprefix("/home/")
+            username = item.path.removeprefix(f"{user_root}/")
             telegram_user_id = await asyncio.to_thread(
                 storage.telegram_user_id_for_host_server_username,
                 host,

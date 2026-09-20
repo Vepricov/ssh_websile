@@ -78,7 +78,9 @@ def run(command: list[str], timeout: int = 30) -> subprocess.CompletedProcess[st
     )
 
 
-def top_home_zfs(source: str) -> list[dict[str, object]] | None:
+def top_home_zfs(
+    source: str, user_root: str = "/home"
+) -> list[dict[str, object]] | None:
     try:
         completed = run(
             [
@@ -104,19 +106,19 @@ def top_home_zfs(source: str) -> list[dict[str, object]] | None:
         path, separator, size = line.partition("\t")
         if (
             separator
-            and path.startswith("/home/")
-            and path.count("/") == 2
+            and path.startswith(f"{user_root}/")
+            and path.count("/") == user_root.count("/") + 1
             and size.isdigit()
         ):
             directories.append({"path": path, "size_bytes": int(size)})
     return directories
 
 
-def top_home_quota() -> list[dict[str, object]] | None:
+def top_home_quota(user_root: str = "/home") -> list[dict[str, object]] | None:
     if shutil.which("repquota") is None:
         return None
     try:
-        completed = run(["repquota", "-up", "/home"], timeout=20)
+        completed = run(["repquota", "-up", user_root], timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if completed.returncode != 0:
@@ -130,7 +132,7 @@ def top_home_quota() -> list[dict[str, object]] | None:
         blocks = fields[2]
         if not username or not blocks.isdigit():
             continue
-        path = f"/home/{username}"
+        path = f"{user_root}/{username}"
         if os.path.isdir(path):
             directories.append(
                 {"path": path, "size_bytes": int(blocks) * 1024}
@@ -141,6 +143,7 @@ def top_home_quota() -> list[dict[str, object]] | None:
 def top_home_cache(
     path: str = "/var/lib/hermes-home-scan/latest.tsv",
     *,
+    user_root: str = "/home",
     now: int | None = None,
     expected_uid: int = 0,
     max_age_seconds: int = 48 * 3600,
@@ -179,8 +182,8 @@ def top_home_cache(
                 if (
                     separator
                     and size.isdigit()
-                    and home_path.startswith("/home/")
-                    and home_path.count("/") == 2
+                    and home_path.startswith(f"{user_root}/")
+                    and home_path.count("/") == user_root.count("/") + 1
                 ):
                     directories.append(
                         {"path": home_path, "size_bytes": int(size)}
@@ -192,11 +195,14 @@ def top_home_cache(
 
 
 def top_home() -> None:
-    if not os.path.isdir("/home"):
+    user_root = "/data/users" if os.path.isdir("/data/users") else "/home"
+    if not os.path.isdir(user_root):
         print('{"directories": [], "source": "missing"}')
         return
     try:
-        mount = run(["findmnt", "-n", "-o", "FSTYPE,SOURCE", "-T", "/home"])
+        mount = run(
+            ["findmnt", "-n", "-o", "FSTYPE,SOURCE", "-T", user_root]
+        )
     except (OSError, subprocess.TimeoutExpired):
         mount = None
     directories = None
@@ -204,16 +210,16 @@ def top_home() -> None:
     if mount is not None and mount.returncode == 0:
         fields = mount.stdout.split()
         if len(fields) >= 2 and fields[0] == "zfs":
-            directories = top_home_zfs(fields[1])
+            directories = top_home_zfs(fields[1], user_root)
             source_name = "zfs"
     if directories is None:
-        directories = top_home_quota()
+        directories = top_home_quota(user_root)
         if directories:
             source_name = "quota"
         else:
             directories = None
     if directories is None:
-        directories = top_home_cache()
+        directories = top_home_cache(user_root=user_root)
         if directories is not None:
             source_name = "cache"
     if directories is None:

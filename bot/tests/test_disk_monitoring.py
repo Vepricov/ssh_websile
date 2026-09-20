@@ -104,6 +104,23 @@ def test_disk_scanner_keeps_top_ten_home_directories() -> None:
     assert scanner.top_home("brain_lab")[-1].path == "/home/user9"
 
 
+def test_disk_scanner_accepts_vv_data_user_directories() -> None:
+    report = json.dumps(
+        {
+            "directories": [
+                {"path": "/data/users/alice", "size_bytes": 700},
+                {"path": "/data/users/bob", "size_bytes": 600},
+            ]
+        }
+    )
+    scanner = DiskScanner(("vv_h200",), runner=lambda _host, _command: (0, report))
+
+    assert scanner.top_home("vv_h200") == (
+        DiskDirectoryUsage("/data/users/alice", 700),
+        DiskDirectoryUsage("/data/users/bob", 600),
+    )
+
+
 def test_disk_scanner_parses_allowlisted_cleanup_report() -> None:
     report = json.dumps(
         {
@@ -458,6 +475,57 @@ def test_warning_home_pressure_notifies_linked_owner_but_not_admin(tmp_path) -> 
     assert delivered == (("brain_lab", "alice"),)
     assert [message[0] for message in bot.messages] == [101]
     assert "осталось 10.0%" in bot.messages[0][1]
+
+
+def test_vv_data_pressure_notifies_owner_from_data_users(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    gib = 1024**3
+    storage.save_application(
+        Application(
+            101, "alice_tg", "Alice Example", "alice", "бессрочно",
+            "Andrey Example", "Research", ("vv_h200",),
+        )
+    )
+    storage.save_access(
+        101,
+        ProvisionedAccess(
+            "vv_h200", "alice", "secret", "ssh alice@example", "", True
+        ),
+    )
+    storage.record_disk_sample(
+        DiskUsageSample(
+            "vv_h200", "dev:84", ("/data",), 10_000 * gib, 9_600 * gib,
+            400 * gib, 1000, 900, 100,
+        )
+    )
+
+    class FakeScanner:
+        hosts = ("vv_h200",)
+
+        def top_home(self, _host):
+            return (DiskDirectoryUsage("/data/users/alice", 700 * gib),)
+
+    class FakeBot:
+        messages = []
+
+        async def send_message(self, chat_id, text, **kwargs):
+            self.messages.append((chat_id, text, kwargs))
+
+    bot = FakeBot()
+    delivered = asyncio.run(
+        deliver_disk_cleanup_requests(
+            bot,
+            storage,
+            FakeScanner(),
+            admin_user_ids=frozenset({999}),
+            now=200,
+        )
+    )
+
+    assert delivered == (("vv_h200", "alice"),)
+    assert bot.messages[0][0] == 101
+    assert "/data/users/alice" in bot.messages[0][1]
+    assert "На <code>/data</code> осталось 4.0%" in bot.messages[0][1]
 
 
 def test_disk_cleanup_acknowledgement_is_owned_by_telegram_user(tmp_path) -> None:

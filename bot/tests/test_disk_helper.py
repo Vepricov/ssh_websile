@@ -94,6 +94,27 @@ def test_top_home_cache_reads_completed_fast_scan(tmp_path: Path) -> None:
     ]
 
 
+def test_top_home_cache_reads_vv_data_users(tmp_path: Path) -> None:
+    helper = load_helper()
+    cache = tmp_path / "latest.tsv"
+    cache.write_text(
+        "120000\t/data/users\n"
+        "70000\t/data/users/alice\n"
+        "90000\t/data/users/bob\n",
+        encoding="utf-8",
+    )
+
+    assert helper.top_home_cache(
+        str(cache),
+        user_root="/data/users",
+        now=int(cache.stat().st_mtime),
+        expected_uid=os.getuid(),
+    ) == [
+        {"path": "/data/users/bob", "size_bytes": 90000},
+        {"path": "/data/users/alice", "size_bytes": 70000},
+    ]
+
+
 def test_top_home_cache_rejects_stale_file(tmp_path: Path) -> None:
     helper = load_helper()
     cache = tmp_path / "latest.tsv"
@@ -124,7 +145,7 @@ def test_top_home_cache_rejects_symlink_and_oversized_file(tmp_path: Path) -> No
 
 def test_top_home_falls_back_to_completed_cache(monkeypatch, capsys) -> None:
     helper = load_helper()
-    monkeypatch.setattr(helper.os.path, "isdir", lambda path: True)
+    monkeypatch.setattr(helper.os.path, "isdir", lambda path: path == "/home")
     monkeypatch.setattr(
         helper,
         "run",
@@ -132,11 +153,11 @@ def test_top_home_falls_back_to_completed_cache(monkeypatch, capsys) -> None:
             command, 0, "ext4 /dev/sdb\n", ""
         ),
     )
-    monkeypatch.setattr(helper, "top_home_quota", lambda: [])
+    monkeypatch.setattr(helper, "top_home_quota", lambda _user_root: [])
     monkeypatch.setattr(
         helper,
         "top_home_cache",
-        lambda: [{"path": "/home/alice", "size_bytes": 70000}],
+        lambda **_kwargs: [{"path": "/home/alice", "size_bytes": 70000}],
     )
 
     helper.top_home()
@@ -153,7 +174,7 @@ def test_top_home_returns_ten_largest_directories(monkeypatch, capsys) -> None:
         {"path": f"/home/user{index}", "size_bytes": index}
         for index in range(12)
     ]
-    monkeypatch.setattr(helper.os.path, "isdir", lambda path: True)
+    monkeypatch.setattr(helper.os.path, "isdir", lambda path: path == "/home")
     monkeypatch.setattr(
         helper,
         "run",
@@ -161,7 +182,7 @@ def test_top_home_returns_ten_largest_directories(monkeypatch, capsys) -> None:
             command, 0, "ext4 /dev/sdb\n", ""
         ),
     )
-    monkeypatch.setattr(helper, "top_home_quota", lambda: rows)
+    monkeypatch.setattr(helper, "top_home_quota", lambda _user_root: rows)
 
     helper.top_home()
 
@@ -178,7 +199,9 @@ def test_home_scan_timer_is_low_priority_and_bounded() -> None:
     service = (deploy / "hermes-home-scan.service").read_text(encoding="utf-8")
     timer = (deploy / "hermes-home-scan.timer").read_text(encoding="utf-8")
 
-    assert "/usr/local/sbin/hermes-fast-du /home" in scanner
+    assert "user_root=/home" in scanner
+    assert "user_root=/data/users" in scanner
+    assert '/usr/local/sbin/hermes-fast-du "$user_root"' in scanner
     assert "os.replace(temporary, destination)" in scanner
     assert "entry.is_dir(follow_symlinks=False)" in fast_du
     assert "os.fsync(output.fileno())" in fast_du
