@@ -12,6 +12,7 @@ from server_access_bot.disk_monitoring import (
     DiskScanner,
     deliver_disk_alerts,
     deliver_disk_cleanup_requests,
+    format_disk_alert,
     format_disk_status,
 )
 from server_access_bot.domain import (
@@ -810,3 +811,18 @@ def test_disk_status_lists_free_space_and_unreachable_servers() -> None:
     assert "/ и /home · занято 75.0% · свободно 250.0 GB" in text
     assert "🔴 <b>H200</b>" in text
     assert "Сервер недоступен" in text
+
+
+def test_vv_disk_alert_labels_data_users_top() -> None:
+    gib = 1024**3
+    sample = DiskUsageSample(
+        "vv_h200", "dev:84", ("/data",), 10_000 * gib, 9_500 * gib,
+        500 * gib, 1000, 900, 100,
+    )
+    text = format_disk_alert(
+        (DiskAlert("critical", sample, None, None, None),),
+        (DiskDirectoryUsage("/data/users/alice", 700 * gib),),
+    )
+
+    assert "Самые большие каталоги в /data/users" in text
+    assert "/data/users/alice" in text

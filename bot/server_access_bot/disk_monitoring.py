@@ -405,15 +405,19 @@ def format_disk_alert(
             )
         sections.append("\n".join(lines))
     if top_home:
-        top_lines = ["<b>Самые большие каталоги в /home</b>"]
+        user_root = _user_storage(host)[1]
+        top_lines = [
+            f"<b>Самые большие каталоги в {html.escape(user_root)}</b>"
+        ]
         top_lines.extend(
             f"<code>{html.escape(item.path)}</code> · {_format_bytes(item.size_bytes)}"
             for item in top_home
         )
         sections.append("\n".join(top_lines))
-    elif any("/home" in alert.sample.paths for alert in alerts):
+    elif any(_user_storage(host)[0] in alert.sample.paths for alert in alerts):
+        user_root = html.escape(_user_storage(host)[1])
         sections.append(
-            "<b>Top /home</b>\n"
+            f"<b>Top {user_root}</b>\n"
             "Быстрая quota-статистика пока недоступна или домашние каталоги пусты."
         )
     if cleanup is not None:
