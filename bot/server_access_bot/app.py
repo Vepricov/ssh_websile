@@ -132,6 +132,16 @@ class Form(StatesGroup):
     edit_recommender = State()
 
 
+def needs_recommender_correction(
+    submission: Profile | ServerRequest | None, error: Exception
+) -> bool:
+    return (
+        isinstance(submission, ServerRequest)
+        and isinstance(error, ValidationError)
+        and str(error) == "Укажите имя или Telegram-ник рекомендателя."
+    )
+
+
 def server_form_url(
     *,
     server_username: str | None = None,
@@ -1098,6 +1108,9 @@ def build_router(
             or message.web_app_data is None
         ):
             return
+        with contextlib.suppress(TelegramBadRequest):
+            await message.delete()
+        submission: Profile | ServerRequest | None = None
         try:
             submission = parse_web_app_data(
                 message.from_user, message.web_app_data.data
@@ -1162,6 +1175,20 @@ def build_router(
             elif mcp_data is None:
                 raise ValidationError("Выберите хотя бы один ресурс.")
         except ValueError as error:
+            if needs_recommender_correction(submission, error):
+                requested_host = (
+                    submission.servers[0]
+                    if len(submission.servers) == 1
+                    else None
+                )
+                await state.set_state(Form.edit_recommender)
+                await state.update_data(resume_server_request=requested_host)
+                await message.answer(
+                    "В сохранённом профиле нужно уточнить рекомендателя. "
+                    "Пришлите одним сообщением имя и фамилию, Telegram-ник "
+                    "или оба варианта."
+                )
+                return
             await message.answer(
                 str(error),
                 reply_markup=await personalized_main_menu(message.from_user.id),
@@ -1889,19 +1916,26 @@ def build_router(
 
     @router.callback_query(F.data == "catalog:ascend")
     async def ascend_catalog(callback: CallbackQuery, state: FSMContext) -> None:
+        if (
+            callback.message is None
+            or callback.message.chat.type != ChatType.PRIVATE
+        ):
+            await callback.answer(
+                "Заявки оформляются в личном чате с ботом.", show_alert=True
+            )
+            return
         await state.clear()
         await callback.answer()
-        if callback.message:
-            await callback.message.answer(
-                "<b>Alibaba</b>\n\n"
-                "Пилотный ресурс. Отправьте отдельную заявку через бота. После "
-                "одобрения бот сам создаст аккаунт и пришлёт логин, пароль, "
-                "SSH-команду и инструкцию по работе со Slurm.\n\n"
-                f"{ALIBABA_VPN_NOTE}",
-                reply_markup=await personalized_server_request_menu(
-                    "alibaba_ascend", callback.from_user.id
-                ),
-            )
+        await callback.message.answer(
+            "<b>Alibaba</b>\n\n"
+            "Пилотный ресурс. Отправьте отдельную заявку через бота. После "
+            "одобрения бот сам создаст аккаунт и пришлёт логин, пароль, "
+            "SSH-команду и инструкцию по работе со Slurm.\n\n"
+            f"{ALIBABA_VPN_NOTE}",
+            reply_markup=await personalized_server_request_menu(
+                "alibaba_ascend", callback.from_user.id
+            ),
+        )
 
     @router.message(F.text == "📚 Сайт и правила")
     async def site_and_rules(message: Message, state: FSMContext) -> None:
@@ -1918,8 +1952,16 @@ def build_router(
     @router.callback_query(F.data.startswith("servers:add:"))
     async def add_server(callback: CallbackQuery, state: FSMContext) -> None:
         host = (callback.data or "").rsplit(":", 1)[-1]
-        if host not in {**SERVER_NAMES, **SERVICE_NAMES} or callback.message is None:
+        if host not in {**SERVER_NAMES, **SERVICE_NAMES}:
             await callback.answer("Неизвестный сервер.", show_alert=True)
+            return
+        if (
+            callback.message is None
+            or callback.message.chat.type != ChatType.PRIVATE
+        ):
+            await callback.answer(
+                "Заявки оформляются в личном чате с ботом.", show_alert=True
+            )
             return
         await state.clear()
         await callback.answer()
@@ -1971,8 +2013,9 @@ def build_router(
 
     @router.message(Form.edit_recommender, F.text)
     async def save_recommender(message: Message, state: FSMContext) -> None:
-        if message.from_user is None:
+        if message.from_user is None or message.chat.type != ChatType.PRIVATE:
             return
+        state_data = await state.get_data()
         profile = await asyncio.to_thread(
             service.storage.profile_for, message.from_user.id
         )
@@ -1996,6 +2039,20 @@ def build_router(
             return
         await asyncio.to_thread(service.storage.save_profile, updated)
         await state.clear()
+        resume_host = state_data.get("resume_server_request")
+        if isinstance(resume_host, str) and resume_host in {
+            **SERVER_NAMES,
+            **SERVICE_NAMES,
+        }:
+            await message.answer(
+                "Рекомендатель сохранён. Теперь повторно отправьте короткую "
+                f"заявку на {ALL_SERVICE_NAMES[resume_host]}: поля формы уже "
+                "сохранены.",
+                reply_markup=await personalized_server_request_menu(
+                    resume_host, message.from_user.id
+                ),
+            )
+            return
         await answer_profile(message, updated)
 
     return router
