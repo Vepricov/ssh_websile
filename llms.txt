@@ -8,6 +8,7 @@ Public, secret-free documentation for users and automation agents.
 - Старый сервер (MIPT): /servers.html#old-server
 - Новый сервер (BrainLab): /servers.html#new-server
 - H200: /servers.html#h200
+- 2 × A100 (BrainLab): /servers.html#two-a100
 - mlsub / Cloud.ru: /servers.html#mlsub
 - Яндекс-сервер: /servers.html#yandex
 - Alibaba: /servers.html#alibaba-ascend
@@ -20,7 +21,8 @@ Public, secret-free documentation for users and automation agents.
 3. H200 requires a separate VPN before SSH access. The user sends full name and MIPT email to @undef1ne5, waits for the email from helpdesk02@vkusvill.ru, then submits the access request through @brainlab_server_access_bot. No separate administrator message is required.
 4. mlsub is a separate compute service, not another SSH server. Requesting it requires existing approved access to the BrainLab server and a separate administrator approval.
 5. Alibaba is a pilot external resource and requires the same VPN as H200. Reuse the H200 VPN if it is already configured. Otherwise send full name and MIPT email to @undef1ne5, wait for the email from helpdesk02@vkusvill.ru, then submit a separate request through @brainlab_server_access_bot. After admin approval, the bot creates the Unix account and sends the login, password, SSH command and Slurm details. The requested Unix username becomes the login, and the full server guide is available in ~/README.txt.
-6. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
+6. 2 × A100 (BrainLab) is reachable only from the MIPT network or MIPT VPN and has no outbound internet. Request it through @brainlab_server_access_bot like the other servers; copy environments and models with scp or rsync.
+7. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
 
 ## Access
 Use https://t.me/brainlab_server_access_bot for managed resources and Alibaba requests. The Yandex resource is external and is handled by @aloeme.

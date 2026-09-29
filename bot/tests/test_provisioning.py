@@ -159,3 +159,30 @@ def test_alibaba_username_check_uses_recovery_aware_helper() -> None:
     assert calls[0][-1] == (
         "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision available alice"
     )
+
+
+def test_two_a100_uses_the_standard_add_user_helper() -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "HERMES_STATUS=CREATED\nUsername: alice\nPassword: secret\n"
+            "Подключение: ssh alice@10.55.230.46\n"
+            "Ссылка на тг группу сервера: https://t.me/example",
+            "",
+        )
+
+    access = SshProvisioner(run=run).provision("2_a100_brain", "alice")
+
+    assert access.host == "2_a100_brain"
+    assert access.connection == "ssh alice@10.55.230.46"
+    assert calls[0][-5:] == [
+        "2_a100_brain",
+        "sudo",
+        "-n",
+        "/usr/local/sbin/hermes-add-user",
+        "alice",
+    ]

@@ -895,8 +895,9 @@ class Storage:
                     WHEN 'shkodnik_opt' THEN 1
                     WHEN 'brain_lab' THEN 2
                     WHEN 'vv_h200' THEN 3
-                    WHEN 'yandex' THEN 4
-                    ELSE 5
+                    WHEN '2_a100_brain' THEN 4
+                    WHEN 'yandex' THEN 5
+                    ELSE 6
                 END
                 """,
                 (telegram_user_id,),

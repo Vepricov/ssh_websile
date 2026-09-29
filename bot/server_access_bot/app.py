@@ -93,6 +93,10 @@ VPN_NOTE = (
     "Без VPN подключиться к H200 по SSH нельзя. Для Alibaba нужен тот же VPN; "
     "для остальных ресурсов отдельный VPN-шаг не требуется."
 )
+MIPT_NETWORK_NOTE = (
+    "Сервер во внутренней сети МФТИ: подключайтесь из сети МФТИ или через VPN МФТИ. "
+    "Выхода в интернет у сервера нет, пакеты и модели копируйте через scp или rsync."
+)
 ALIBABA_VPN_NOTE = (
     "<b>VPN для Alibaba</b>\n"
     "Для подключения нужен тот же VPN, что и для H200. Если он уже настроен, "
@@ -109,6 +113,7 @@ SERVER_NAMES = {
     "shkodnik_opt": "Старый сервер (MIPT)",
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200 (VV)",
+    "2_a100_brain": "2 × A100 (BrainLab)",
 }
 SERVICE_NAMES = {
     "mlsub": "mlsub / Cloud.ru",
@@ -155,7 +160,7 @@ def server_form_url(
         query["username"] = server_username
     if existing_services:
         query["existing"] = ",".join(dict.fromkeys(existing_services))
-    query["v"] = "mcp-resource-20260916"
+    query["v"] = "2-a100-brain-20260929"
     return f"{SERVER_FORM_URL}?{urlencode(query)}"
 
 
@@ -623,6 +628,9 @@ def available_servers_text() -> str:
         "Дождитесь письма от <code>helpdesk02@vkusvill.ru</code>, затем "
         "вернитесь в бот и отправьте заявку через «➕ Получить доступ». "
         "Без VPN подключение по SSH недоступно.\n\n"
+        "<b>2 × A100 (BrainLab)</b>\n"
+        "2 × A100 80 GB. Только из сети МФТИ или через VPN МФТИ, "
+        "без выхода в интернет.\n\n"
         "<b>mlsub / Cloud.ru</b>\n"
         "отдельный вычислительный сервис для запуска задач в очереди Cloud.ru. "
         "Для заявки нужен уже выданный доступ к BrainLab. mlsub включается "
@@ -658,6 +666,7 @@ def demo_accesses(
         "shkodnik_opt": f"ssh -p 10096 {username}@proxy2.cod.phystech.edu",
         "brain_lab": f"ssh -p 10210 {username}@proxy2.cod.phystech.edu",
         "vv_h200": f"ssh -p 30018 {username}@10.0.116.11",
+        "2_a100_brain": f"ssh {username}@10.55.230.46",
         "mlsub": "mlsub run --repo <https git> --entry train.py --gpus 1",
         "alibaba_ascend": "",
     }
@@ -804,6 +813,8 @@ def server_dashboard_text(
                 lines.append(f"Telegram-группа: {html.escape(access.group_url)}")
         if access.host == "vv_h200":
             lines.append(VPN_NOTE)
+        if access.host == "2_a100_brain":
+            lines.append(MIPT_NETWORK_NOTE)
         sections.append("\n".join(lines))
     mlsub = by_host.get("mlsub")
     if mlsub is not None:
@@ -1865,7 +1876,8 @@ def build_router(
             await message.answer(
                 "Укажите сервер: <code>/bind_server brain_lab</code>, "
                 "<code>/bind_server shkodnik_opt</code>, "
-                "<code>/bind_server vv_h200</code> или "
+                "<code>/bind_server vv_h200</code>, "
+                "<code>/bind_server 2_a100_brain</code> или "
                 "<code>/bind_server yandex</code>."
             )
             return
@@ -2067,7 +2079,7 @@ async def run(settings: Settings) -> None:
     )
     process_controller = GpuProcessController(
         sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids),
-        nopasswd_hosts={"yandex"},
+        nopasswd_hosts={"yandex", "2_a100_brain"},
     )
     status_hosts = tuple(PUBLIC_SERVER_NAMES)
     monitored_hosts = tuple(

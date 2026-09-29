@@ -9,6 +9,9 @@ def test_public_catalog_has_separate_safe_resources() -> None:
     resources = {resource["id"]: resource for resource in data["resources"]}
 
     assert resources["new_server"]["kind"] == "ssh-server"
+    assert resources["two_a100"]["kind"] == "ssh-server"
+    assert resources["two_a100"]["requestable"] is True
+    assert "10.55." not in json.dumps(resources["two_a100"])
     assert resources["h200"]["vpn_contact"] == "@undef1ne5"
     assert resources["h200"]["vpn_email_sender"] == "helpdesk02@vkusvill.ru"
     assert resources["h200"]["access_contact"] == "@brainlab_server_access_bot"

@@ -5,7 +5,9 @@ from collections.abc import Callable, Mapping, Sequence
 from .domain import GpuProcessAction, ProcessIdentity
 from .storage import Storage
 
-HOSTS = frozenset({"shkodnik_opt", "brain_lab", "vv_h200", "yandex"})
+HOSTS = frozenset(
+    {"shkodnik_opt", "brain_lab", "vv_h200", "2_a100_brain", "yandex"}
+)
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 HELPER = "/usr/local/sbin/hermes-gpu-process-control"
 PROCESS_ACTION_NEVER_EXPIRES_AT = 2**63 - 1
@@ -52,6 +54,10 @@ class GpuProcessController:
                     "BatchMode=yes",
                     "-o",
                     "ConnectTimeout=10",
+                    "-o",
+                    "ControlMaster=no",
+                    "-o",
+                    "ControlPath=none",
                     "--",
                     host,
                     *sudo_arguments,
