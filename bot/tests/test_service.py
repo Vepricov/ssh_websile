@@ -56,18 +56,15 @@ class FakeProvisioner:
         self.acknowledged.append((host, username))
 
 
-def test_recommender_is_any_nonempty_text() -> None:
+def test_recommender_accepts_any_text() -> None:
     base = {
         "telegram_user_id": 101,
         "telegram_username": "alice_tg",
         "full_name": "Alice Smith",
     }
 
-    for recommender in ("Наиль", "Даниил", "руководитель группы", "@dmedyakov"):
+    for recommender in ("Наиль", "руководитель группы", "@dmedyakov", "123", "", "   "):
         validate_profile(Profile(recommender=recommender, **base))
-
-    with pytest.raises(ValidationError, match="Укажите рекомендателя"):
-        validate_profile(Profile(recommender="   ", **base))
 
 
 def test_profile_is_saved_without_server_fields(tmp_path: Path) -> None:

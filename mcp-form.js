@@ -42,7 +42,6 @@
         const words = name.split(/\s+/);
         fields["full-name"].setCustomValidity(words.length >= 2
             && words.every((word) => /^(?=.*\p{L})[\p{L}-]+$/u.test(word)) ? "" : "Укажите имя и фамилию.");
-        fields.recommender.setCustomValidity(fields.recommender.value.trim() ? "" : "Укажите рекомендателя.");
         if (!form.reportValidity()) return;
         if (!telegram?.sendData) {
             error.textContent = "Откройте эту форму кнопкой «База знаний MCP» внутри Telegram-бота.";
