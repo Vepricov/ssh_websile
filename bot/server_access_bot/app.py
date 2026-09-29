@@ -137,15 +137,6 @@ class Form(StatesGroup):
     edit_recommender = State()
 
 
-def needs_recommender_correction(
-    submission: Profile | ServerRequest | None, error: Exception
-) -> bool:
-    return (
-        isinstance(submission, ServerRequest)
-        and isinstance(error, ValidationError)
-        and str(error) == "Укажите имя или Telegram-ник рекомендателя."
-    )
-
 
 def server_form_url(
     *,
@@ -1186,20 +1177,6 @@ def build_router(
             elif mcp_data is None:
                 raise ValidationError("Выберите хотя бы один ресурс.")
         except ValueError as error:
-            if needs_recommender_correction(submission, error):
-                requested_host = (
-                    submission.servers[0]
-                    if len(submission.servers) == 1
-                    else None
-                )
-                await state.set_state(Form.edit_recommender)
-                await state.update_data(resume_server_request=requested_host)
-                await message.answer(
-                    "В сохранённом профиле нужно уточнить рекомендателя. "
-                    "Пришлите одним сообщением имя и фамилию, Telegram-ник "
-                    "или оба варианта."
-                )
-                return
             await message.answer(
                 str(error),
                 reply_markup=await personalized_main_menu(message.from_user.id),
@@ -2027,7 +2004,6 @@ def build_router(
     async def save_recommender(message: Message, state: FSMContext) -> None:
         if message.from_user is None or message.chat.type != ChatType.PRIVATE:
             return
-        state_data = await state.get_data()
         profile = await asyncio.to_thread(
             service.storage.profile_for, message.from_user.id
         )
@@ -2051,20 +2027,6 @@ def build_router(
             return
         await asyncio.to_thread(service.storage.save_profile, updated)
         await state.clear()
-        resume_host = state_data.get("resume_server_request")
-        if isinstance(resume_host, str) and resume_host in {
-            **SERVER_NAMES,
-            **SERVICE_NAMES,
-        }:
-            await message.answer(
-                "Рекомендатель сохранён. Теперь повторно отправьте короткую "
-                f"заявку на {ALL_SERVICE_NAMES[resume_host]}: поля формы уже "
-                "сохранены.",
-                reply_markup=await personalized_server_request_menu(
-                    resume_host, message.from_user.id
-                ),
-            )
-            return
         await answer_profile(message, updated)
 
     return router

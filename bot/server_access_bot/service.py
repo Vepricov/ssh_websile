@@ -59,8 +59,6 @@ def _access_term_ok(value: str) -> bool:
 def validate_profile(profile: Profile) -> None:
     if not _human_name(profile.full_name):
         raise ValidationError("Укажите имя и фамилию.")
-    if not profile.recommender.strip():
-        raise ValidationError("Укажите рекомендателя.")
 
 
 def validate(application: Application) -> None:

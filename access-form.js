@@ -82,9 +82,6 @@
         fullName.setCustomValidity(
             isHumanName(fullName.value) ? "" : "Укажите имя и фамилию.",
         );
-        recommender.setCustomValidity(
-            recommender.value.trim() ? "" : "Укажите рекомендателя.",
-        );
         return form.reportValidity();
     }
 
