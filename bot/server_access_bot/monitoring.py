@@ -33,6 +33,7 @@ PUBLIC_SERVER_NAMES = {
     "shkodnik_opt": "Старый сервер (MIPT)",
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200",
+    "2_a100_brain": "2 × A100 (BrainLab)",
     "yandex": "Яндекс-сервер",
     "alibaba_ascend": "Alibaba",
 }
@@ -40,6 +41,7 @@ SERVER_LOCATIONS = {
     "shkodnik_opt": "старом сервере (MIPT)",
     "brain_lab": "новом сервере (BrainLab)",
     "vv_h200": "H200",
+    "2_a100_brain": "сервере 2 × A100 (BrainLab)",
     "yandex": "сервере Яндекса",
     "alibaba_ascend": "Alibaba",
 }

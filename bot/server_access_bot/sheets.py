@@ -55,6 +55,7 @@ SERVER_LABELS = {
     "shkodnik_opt": "Старый сервер (MIPT) -- x4 RTX 2080 11гб, x2 A100 40гб, x2 A100 80гб",
     "brain_lab": "Новый сервер (BrainLab) -- x4 A100 80гб",
     "vv_h200": "H200 (VB) - x8 H200 140гб",
+    "2_a100_brain": "2 × A100 (BrainLab) -- x2 A100 80гб, только сеть МФТИ",
     "mlsub": "mlsub / Cloud.ru — отдельный сервис через BrainLab",
     "alibaba_ascend": "Alibaba — внешняя ручная выдача",
 }
@@ -62,6 +63,7 @@ REGISTRY_SERVER_LABELS = {
     "shkodnik_opt": "Старый сервер (MIPT)",
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200",
+    "2_a100_brain": "2 × A100 (BrainLab)",
     "yandex": "Яндекс-сервер",
     "mlsub": "mlsub / Cloud.ru",
     "alibaba_ascend": "Alibaba",
@@ -70,6 +72,7 @@ REGISTRY_SERVERS = (
     ("shkodnik_opt", ("Старый сервер (MIPT)", "Старый (mipt)")),
     ("brain_lab", ("Новый сервер (BrainLab)", "Новый (BrainLab)")),
     ("vv_h200", ("H200",)),
+    ("2_a100_brain", ("2 × A100 (BrainLab)",)),
     ("yandex", ("Яндекс",)),
     ("mlsub", ("mlsub / Cloud.ru",)),
     ("alibaba_ascend", ("Alibaba Ascend", "Alibaba")),

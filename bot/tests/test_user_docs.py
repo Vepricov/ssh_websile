@@ -9,7 +9,7 @@ def test_every_managed_server_has_two_user_documents() -> None:
 
     assert "CUDA_VISIBLE_DEVICES" in common
     assert "Не останавливайте чужие процессы" in common
-    for host in ("shkodnik_opt", "brain_lab", "vv_h200"):
+    for host in ("shkodnik_opt", "brain_lab", "vv_h200", "2_a100_brain"):
         guide = (DOCS / host / "SERVER_GUIDE.md").read_text()
         assert guide.startswith("# ")
         assert "@brainlab_server_access_bot" in guide

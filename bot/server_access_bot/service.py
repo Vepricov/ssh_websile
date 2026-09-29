@@ -30,7 +30,14 @@ class ValidationError(ValueError):
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 ALIBABA_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
 ALLOWED_HOSTS = frozenset(
-    {"shkodnik_opt", "brain_lab", "vv_h200", "mlsub", "alibaba_ascend"}
+    {
+        "shkodnik_opt",
+        "brain_lab",
+        "vv_h200",
+        "2_a100_brain",
+        "mlsub",
+        "alibaba_ascend",
+    }
 )
 MOSCOW_TIME = ZoneInfo("Europe/Moscow")
 

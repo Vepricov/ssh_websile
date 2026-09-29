@@ -191,3 +191,21 @@ def test_failed_signal_returns_action_to_retryable_state(tmp_path) -> None:
     action = storage.gpu_process_action_for("safe-token", 101, now=100)
     assert action is not None
     assert action.status == "pending"
+
+
+def test_controller_ssh_never_opens_a_control_socket() -> None:
+    # The service has /root/.ssh read-only; a ControlMaster from ~/.ssh/config
+    # fails with "cannot bind ... Read-only file system".
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "303:987654\n", "")
+
+    controller = GpuProcessController(run=run, nopasswd_hosts={"2_a100_brain"})
+
+    controller.snapshot("2_a100_brain", "alice", (303,))
+
+    assert "ControlMaster=no" in calls[0]
+    assert "ControlPath=none" in calls[0]
+    assert calls[0][calls[0].index("--") + 1] == "2_a100_brain"
