@@ -122,7 +122,6 @@ SERVICE_NAMES = {
 ALL_SERVICE_NAMES = {
     **SERVER_NAMES,
     **SERVICE_NAMES,
-    "yandex": "Яндекс-сервер",
 }
 BOT_DEFAULTS = DefaultBotProperties(
     parse_mode=ParseMode.HTML,
@@ -626,8 +625,6 @@ def available_servers_text() -> str:
         "отдельный вычислительный сервис для запуска задач в очереди Cloud.ru. "
         "Для заявки нужен уже выданный доступ к BrainLab. mlsub включается "
         "только после отдельного одобрения администратора.\n\n"
-        "<b>Яндекс-сервер</b>\n"
-        'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.\n\n'
         "<b>Alibaba</b>\n"
         "Пилотный внешний ресурс. Заявка отправляется через этого бота, "
         "аккаунт создаётся вручную. Логин выдаётся отдельно и может "
@@ -697,7 +694,9 @@ def available_servers_keyboard() -> InlineKeyboardMarkup:
 
 
 def registry_confirmation_text(match: RegistryMatch) -> str:
-    services = ", ".join(ALL_SERVICE_NAMES[host] for host in match.servers)
+    services = ", ".join(
+        ALL_SERVICE_NAMES[host] for host in match.servers if host in ALL_SERVICE_NAMES
+    )
     return (
         "Я нашёл ваши данные в существующей таблице. Это вы?\n\n"
         f"ФИО: {html.escape(match.full_name)}\n"
@@ -871,10 +870,6 @@ def server_dashboard_text(
             "создаст аккаунт и пришлёт доступ.\n"
             f"{ALIBABA_VPN_NOTE}"
         )
-    sections.append(
-        "☁️ <b>Яндекс-сервер</b>\n"
-        'Для получения доступа напишите <a href="https://t.me/aloeme">@aloeme</a>.'
-    )
     sections.append(f'Правила: <a href="{RULES_URL}">открыть сайт</a>')
     return "\n\n".join(sections)
 
@@ -1853,9 +1848,8 @@ def build_router(
             await message.answer(
                 "Укажите сервер: <code>/bind_server brain_lab</code>, "
                 "<code>/bind_server shkodnik_opt</code>, "
-                "<code>/bind_server vv_h200</code>, "
-                "<code>/bind_server 2_a100_brain</code> или "
-                "<code>/bind_server yandex</code>."
+                "<code>/bind_server vv_h200</code> или "
+                "<code>/bind_server 2_a100_brain</code>."
             )
             return
         await asyncio.to_thread(
@@ -2041,7 +2035,7 @@ async def run(settings: Settings) -> None:
     )
     process_controller = GpuProcessController(
         sudo_passwords=gpu_sudo_passwords(storage, settings.admin_user_ids),
-        nopasswd_hosts={"yandex", "2_a100_brain"},
+        nopasswd_hosts={"2_a100_brain"},
     )
     status_hosts = tuple(PUBLIC_SERVER_NAMES)
     monitored_hosts = tuple(

@@ -10,7 +10,6 @@ Public, secret-free documentation for users and automation agents.
 - H200: /servers.html#h200
 - 2 × A100 (BrainLab): /servers.html#two-a100
 - mlsub / Cloud.ru: /servers.html#mlsub
-- Яндекс-сервер: /servers.html#yandex
 - Alibaba: /servers.html#alibaba-ascend
 - Rules: /rules.html
 - General SSH/Python/Linux/tmux guides: /tools.html
@@ -25,4 +24,4 @@ Public, secret-free documentation for users and automation agents.
 7. Never infer passwords, API keys, private routes or unlisted hosts from this documentation.
 
 ## Access
-Use https://t.me/brainlab_server_access_bot for managed resources and Alibaba requests. The Yandex resource is external and is handled by @aloeme.
+Use https://t.me/brainlab_server_access_bot for managed resources and Alibaba requests.
