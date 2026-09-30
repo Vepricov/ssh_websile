@@ -35,16 +35,16 @@ def test_controller_snapshots_and_signals_exact_process_identity() -> None:
     assert all(kwargs["input"] == "sudo-secret\n" for _, kwargs in calls)
 
 
-def test_controller_uses_non_interactive_sudo_for_yandex() -> None:
+def test_controller_uses_non_interactive_sudo_for_nopasswd_hosts() -> None:
     calls = []
 
     def run(command, **kwargs):
         calls.append((command, kwargs))
         return subprocess.CompletedProcess(command, 0, "303:987654\n", "")
 
-    controller = GpuProcessController(run=run, nopasswd_hosts={"yandex"})
+    controller = GpuProcessController(run=run, nopasswd_hosts={"2_a100_brain"})
 
-    identities = controller.snapshot("yandex", "alice", (303,))
+    identities = controller.snapshot("2_a100_brain", "alice", (303,))
 
     assert identities == (ProcessIdentity(pid=303, start_ticks=987654),)
     assert calls[0][0][-6:] == [

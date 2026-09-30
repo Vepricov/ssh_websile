@@ -34,7 +34,6 @@ PUBLIC_SERVER_NAMES = {
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200",
     "2_a100_brain": "2 × A100 (BrainLab)",
-    "yandex": "Яндекс-сервер",
     "alibaba_ascend": "Alibaba",
 }
 SERVER_LOCATIONS = {
@@ -42,7 +41,6 @@ SERVER_LOCATIONS = {
     "brain_lab": "новом сервере (BrainLab)",
     "vv_h200": "H200",
     "2_a100_brain": "сервере 2 × A100 (BrainLab)",
-    "yandex": "сервере Яндекса",
     "alibaba_ascend": "Alibaba",
 }
 

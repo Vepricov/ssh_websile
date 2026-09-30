@@ -108,7 +108,7 @@ def test_server_request_is_combined_with_saved_profile() -> None:
     assert application.telegram_username == "alice_tg"
 
 
-def test_server_dashboard_contains_managed_accesses_and_yandex_contact() -> None:
+def test_server_dashboard_contains_managed_accesses_without_yandex() -> None:
     accesses = [
         ProvisionedAccess(
             host="brain_lab",
@@ -139,7 +139,8 @@ def test_server_dashboard_contains_managed_accesses_and_yandex_contact() -> None
     assert "helpdesk02@vkusvill.ru" in text
     assert "Получить доступ" in text
     assert "@shkodnik1917" not in text
-    assert '<a href="https://t.me/aloeme">@aloeme</a>' in text
+    assert "@aloeme" not in text
+    assert "Яндекс" not in text
     assert keyboard is not None
     assert keyboard.inline_keyboard[0][0].callback_data == "servers:add:shkodnik_opt"
 
@@ -413,7 +414,7 @@ def test_registry_link_requires_one_tap_confirmation() -> None:
 
     assert "Alice Smith" in text
     assert "Новый сервер (BrainLab)" in text
-    assert "Яндекс-сервер" in text
+    assert "Яндекс-сервер" not in text
     assert keyboard.inline_keyboard[0][0].callback_data == ("registry:confirm:link-123")
 
 
@@ -463,7 +464,7 @@ def test_my_info_combines_profile_and_registered_services() -> None:
     assert "@alice_tg" in text
     assert "Ник на серверах: <code>alice</code>" in text
     assert "Новый сервер (BrainLab)" in text
-    assert "Яндекс-сервер" in text
+    assert "Яндекс-сервер" not in text
     assert "Пароли к старым доступам" in text
     assert "@shkodnik1917" in text
 
@@ -488,7 +489,8 @@ def test_available_server_message_is_complete() -> None:
     assert "Логин выдаётся отдельно" in catalog
     assert "@fckand1" not in catalog
     assert "Для подключения нужен тот же VPN, что и для H200" in catalog
-    assert '<a href="https://t.me/aloeme">@aloeme</a>' in catalog
+    assert "@aloeme" not in catalog
+    assert "Яндекс" not in catalog
     assert BOT_DEFAULTS.link_preview_is_disabled is True
     labels = [button.text for row in keyboard.inline_keyboard for button in row]
     assert "☁️ mlsub / Cloud.ru" in labels

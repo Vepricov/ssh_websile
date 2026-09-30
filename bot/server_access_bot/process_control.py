@@ -6,7 +6,7 @@ from .domain import GpuProcessAction, ProcessIdentity
 from .storage import Storage
 
 HOSTS = frozenset(
-    {"shkodnik_opt", "brain_lab", "vv_h200", "2_a100_brain", "yandex"}
+    {"shkodnik_opt", "brain_lab", "vv_h200", "2_a100_brain"}
 )
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 HELPER = "/usr/local/sbin/hermes-gpu-process-control"
