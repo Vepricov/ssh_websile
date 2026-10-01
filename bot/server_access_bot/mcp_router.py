@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup, WebAppInfo
 
+from .gitlab_access import запомнить_логин
 from .mcp_access import McpAccessService
 from .mcp_profile import FORM_URL, ROLES, is_application, parse_application
 
@@ -64,9 +65,10 @@ def welcome_text(access: dict, group_url: str = "") -> str:
     project_access = (
         "Вы можете управлять всеми проектами лаборатории.\n\n"
         if access["role"] == "lead" else
-        "Вы можете читать общую базу и создавать свои проекты. "
-        "Чтобы дополнять существующий проект, попросите его владельца добавить вас "
-        "как соавтора (contributor). Соавторы могут изменять и удалять записи проекта.\n\n"
+        "Вы читаете все работы лаборатории и заводите свои. Чтобы дополнять чужую "
+        "работу, попросите её ведущего добавить вас участником. Записать в базу "
+        "напрямую нельзя никому: правка идёт pull request, и вносит её слиянием "
+        "человек.\n\n"
     )
     text = (
         "<b>Доступ к Lab Knowledge MCP выдан</b>\n\n"
@@ -82,7 +84,8 @@ def welcome_text(access: dict, group_url: str = "") -> str:
         "<code>Authorization: Bearer ВАШ_КЛЮЧ</code>. Для установщика набора: "
         "<code>LAB_MCP_URL</code> и <code>LAB_MCP_TOKEN</code>.\n"
         "3. Попросите агента найти ваш проект и показать его контекст. "
-        "Если проекта ещё нет — создайте его через /create-project.\n\n"
+        "Если работы ещё нет, попросите агента её завести: инструмент "
+        "<code>create_project</code>, название и тема.\n\n"
         f'<a href="{GUIDE_URL}">Установка и инструкция</a> · '
         f'<a href="{ATLAS_URL}">Atlas: как устроена база</a>\n'
         "Atlas по этой ссылке — демонстрация с учебными данными. "
@@ -90,6 +93,39 @@ def welcome_text(access: dict, group_url: str = "") -> str:
         "SSH-аккаунт BrainLab не требуется. Ключ не пересылайте. "
         "Повторно получить его или отозвать можно через /mcp."
     )
+    # Вход на сайт: это отдельная система со своей учётной записью, и раньше её заводил
+    # владелец руками, из-за чего человек с ключом неделями не мог открыть ни страницы.
+    логин = access.get("site_login") or access.get("gitea_login")
+    пароль = access.get("site_password") or access.get("gitea_password")
+    if логин:
+        text += (
+            "\n\n<b>Вход на сайт базы</b>\n"
+            f"Логин: <code>{html.escape(логин)}</code>\n"
+        )
+        if пароль:
+            text += (f"Временный пароль: <tg-spoiler><code>"
+                     f"{html.escape(пароль)}</code></tg-spoiler>\n"
+                     "Смените его при первом входе.\n")
+        else:
+            text += "Учётная запись уже была заведена, пароль прежний.\n"
+        if access.get("site_url"):
+            text += f"Адрес: <code>{html.escape(access['site_url'])}</code>\n"
+        text += ("Сайт — это и есть база: в нём видны темы, работы и предложения о "
+                 "слиянии, и слияние в браузере и есть запись в базу.")
+    # Ключ для git агент прежде нигде не получал: он заводился и не отправлялся, поэтому
+    # участнику приходилось искать его в интерфейсе самому. Это первый шаг, на котором
+    # люди застревали, и здесь он закрыт.
+    if access.get("git_token"):
+        text += (
+            "\n\n<b>Ключ для git</b>\n"
+            "Этим ключом агент клонирует работу и открывает предложения. Скажите ему "
+            "один раз:\n"
+            f"<pre>export LAB_GIT_URL={html.escape(access.get('site_url') or '')}\n"
+            f"export LAB_GIT_LOGIN={html.escape(логин or '')}\n"
+            f"export LAB_GIT_TOKEN={html.escape(access['git_token'])}</pre>"
+            "Дальше <code>lab here &lt;работа&gt;</code> — и работа склонирована в папку "
+            "проекта. Ключ действует год."
+        )
     if group_url:
         text += f'\n\n<a href="{html.escape(group_url, quote=True)}">Группа тестирования и обратной связи</a>'
     return text
@@ -129,6 +165,13 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
 
     async def deliver(bot: Bot, access: dict) -> None:
+        # Связь логина с телеграмом нужна заявкам на доступ: ключ группы чужую почту не
+        # видит, а здесь оба известны. Неудача записи не должна ломать выдачу доступа.
+        try:
+            запомнить_логин(str(access.get("site_login") or ""),
+                            int(access.get("telegram_user_id") or 0))
+        except Exception as error:  # noqa: BLE001
+            LOGGER.warning("карта GitLab не записана: %s", type(error).__name__)
         await bot.send_message(
             access["telegram_user_id"], welcome_text(access, group_url),
             protect_content=True,

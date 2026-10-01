@@ -30,6 +30,9 @@ from aiogram.types import (
 
 from .config import Settings
 from .mcp_access import McpAccessService, McpBridge
+from .gitlab_access import (build_gitlab_router, run_gitlab_access_loop,
+                            включено as gitlab_включён)
+from .gitlab_notify import run_gitlab_notify_loop
 from .mcp_router import MCP_MENU, build_mcp_router, submit_application as submit_mcp_application
 from .mcp_profile import parse_application as parse_mcp_application
 from .disk_monitoring import (
@@ -2058,6 +2061,9 @@ async def run(settings: Settings) -> None:
         mcp_service,
         settings.mcp_testing_group_url,
     ))
+    # Заявки на доступ в GitLab: решаются кнопкой в телеграме. Роутер подключается всегда,
+    # а опрос — только когда есть ключ: без ключа опрашивать нечего.
+    dispatcher.include_router(build_gitlab_router(settings.mcp_admin_user_ids))
     dispatcher.include_router(
         build_router(
             service,
@@ -2076,6 +2082,15 @@ async def run(settings: Settings) -> None:
     sheets_reconciliation_task = asyncio.create_task(
         run_sheets_reconciliation_loop(storage, sheets)
     )
+    gitlab_access_task = None
+    gitlab_notify_task = None
+    if gitlab_включён():
+        gitlab_access_task = asyncio.create_task(
+            run_gitlab_access_loop(bot, settings.mcp_admin_user_ids)
+        )
+        gitlab_notify_task = asyncio.create_task(
+            run_gitlab_notify_loop(bot, settings.mcp_admin_user_ids)
+        )
     if settings.admin_user_ids:
         ascend_reminder_task = asyncio.create_task(
             run_ascend_reminder_loop(bot, storage, settings.admin_user_ids)

@@ -12,10 +12,18 @@ from .mcp_profile import ROLES
 
 
 class McpBridge:
-    def _call(self, action: str, user_id: int, token: str = "", role: str = "member") -> dict:
+    def _call(self, action: str, user_id: int, token: str = "", role: str = "member",
+              username: str = "", full_name: str = "") -> dict:
+        # Имя и полное имя нужны, чтобы учётка на сайте называлась по-человечески, а не
+        # tg123456789. Оба необязательны: без них сервер соберёт имя сам.
+        payload = {"action": action, "telegram_user_id": user_id, "token": token, "role": role}
+        if username:
+            payload["username"] = username
+        if full_name:
+            payload["full_name"] = full_name
         result = subprocess.run(
             ["ssh", *SSH_OPTIONS, "brain_lab", "/home/shkodnik1917/.local/bin/brainlab-mcp-access"],
-            input=json.dumps({"action": action, "telegram_user_id": user_id, "token": token, "role": role}),
+            input=json.dumps(payload),
             text=True,
             capture_output=True,
             timeout=45,
@@ -30,8 +38,9 @@ class McpBridge:
             raise RuntimeError("Unexpected MCP account role")
         return data
 
-    def issue(self, user_id: int, token: str, role: str = "member") -> dict:
-        return self._call("issue", user_id, token, role)
+    def issue(self, user_id: int, token: str, role: str = "member",
+              username: str = "", full_name: str = "") -> dict:
+        return self._call("issue", user_id, token, role, username, full_name)
 
     def revoke(self, user_id: int) -> dict:
         return self._call("revoke", user_id)
@@ -170,7 +179,9 @@ class McpAccessService:
                 account = json.loads(row["account"])
             else:
                 # Same token on every retry, including a crash after the remote commit.
-                account = self.bridge.issue(user_id, token, chosen_role)
+                account = self.bridge.issue(
+                    user_id, token, chosen_role,
+                    username=str(row["username"] or ""), full_name=str(row["full_name"] or ""))
                 with self.storage._connect() as db:
                     db.execute(
                         "UPDATE mcp_requests SET account=?, status='granted', "
