@@ -28,7 +28,15 @@
         if (typeof draft.recommender === "string") fields.recommender.value = draft.recommender;
     });
     fillDraft("brainlab_server_request_v1", (draft) => {
-        if (typeof draft.server_username === "string") fields.username.value = draft.server_username;
+        if (typeof draft.server_username === "string") fields.username.value = draft.server_username.toLowerCase();
+    });
+    fields.username.addEventListener("input", () => {
+        const lowered = fields.username.value.toLowerCase();
+        if (lowered !== fields.username.value) {
+            const caret = fields.username.selectionStart;
+            fields.username.value = lowered;
+            fields.username.setSelectionRange(caret, caret);
+        }
     });
     form.addEventListener("input", (event) => {
         touched = true;
@@ -52,7 +60,7 @@
             version: 1,
             kind: "mcp_request",
             full_name: name,
-            username: fields.username.value.trim(),
+            username: fields.username.value.trim().toLowerCase(),
             recommender: fields.recommender.value.trim(),
             requested_role: form.querySelector('input[name="role"]:checked').value,
             activity: fields.activity.value.trim(),

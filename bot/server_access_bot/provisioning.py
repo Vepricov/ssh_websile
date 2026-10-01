@@ -26,6 +26,7 @@ ALIBABA_TARGET = "veprikov@10.0.117.196"
 ALIBABA_IDENTITY_FILE = "/root/.ssh/china_cluster_agents"
 ALIBABA_HELPER = "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision"
 PASSWORD_LINE_RE = re.compile(r"(?im)^(\s*пароль:)\s*.*$")
+TIMESTAMP_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s*")
 SSH_OPTIONS = (
     "-o",
     "BatchMode=yes",
@@ -38,6 +39,19 @@ SSH_OPTIONS = (
     "-o",
     "UpdateHostKeys=no",
 )
+
+
+def _helper_failure(stderr: str, returncode: int) -> str:
+    """The SSH banner comes first in stderr; the helper's own verdict is what matters."""
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    errors = [
+        TIMESTAMP_PREFIX_RE.sub("", line)
+        for line in lines
+        if "ОШИБКА" in line or line.startswith("ERROR:")
+    ]
+    if errors:
+        return "\n".join(errors)
+    return lines[-1] if lines else f"exit code {returncode}"
 
 
 class SshProvisioner:
@@ -191,10 +205,10 @@ class SshProvisioner:
             check=False,
         )
         if completed.returncode != 0:
-            detail = PASSWORD_LINE_RE.sub(
-                r"\1 [REDACTED]", completed.stderr.strip()
-            ) or f"exit code {completed.returncode}"
-            raise ProvisioningError(f"alibaba_ascend: {detail}")
+            stderr = PASSWORD_LINE_RE.sub(r"\1 [REDACTED]", completed.stderr)
+            raise ProvisioningError(
+                f"alibaba_ascend: {_helper_failure(stderr, completed.returncode)}"
+            )
         password = ""
         connection = ""
         created = False

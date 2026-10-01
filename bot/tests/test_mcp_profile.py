@@ -28,7 +28,7 @@ def test_requested_role_is_not_a_grant_and_approver_can_choose_another(tmp_path)
     class Bridge:
         calls = []
 
-        def issue(self, user_id, token, role="member"):
+        def issue(self, user_id, token, role="member", username="", full_name=""):
             self.calls.append(role)
             return {"email": "person@example.test", "role": role, "user_id": "user-42"}
 
@@ -51,7 +51,7 @@ def test_requested_role_is_not_a_grant_and_approver_can_choose_another(tmp_path)
 
 def test_existing_member_can_request_a_role_without_losing_current_access(tmp_path):
     class Bridge:
-        def issue(self, user_id, token, role="member"):
+        def issue(self, user_id, token, role="member", username="", full_name=""):
             return {"email": "person@example.test", "role": role, "user_id": "user-42"}
 
     service = McpAccessService(Storage(tmp_path / "db", b"a" * 32), Bridge(), frozenset({1}))
