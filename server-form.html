@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <title>BRAIn Lab — доступы</title>
-    <link rel="stylesheet" href="access-form.css?v=mcp-resource-20260916">
+    <link rel="stylesheet" href="access-form.css?v=access-cleanup-20261001">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -23,7 +23,7 @@
                     <label class="field">
                         <span>Ник</span>
                         <div class="input-prefix"><b>$</b><input id="server-username" name="server_username" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" maxlength="32" pattern="[a-z_][a-z0-9_\-]{0,31}" placeholder="ivan_ivanov" required></div>
-                        <small>Один ник для серверов и базы знаний MCP</small>
+                        <small>Строчные латинские буквы, цифры, «_» и «-», первый символ — буква. Заглавные буквы переводятся в строчные автоматически.</small>
                     </label>
                 </div>
             </section>
@@ -50,29 +50,9 @@
             <section class="form-section" aria-labelledby="servers-title">
                 <div class="section-number">03</div>
                 <div class="section-content">
-                    <h2 id="servers-title">Серверы и база знаний</h2>
+                    <h2 id="servers-title">Серверы</h2>
                     <p class="section-hint">Можно выбрать несколько</p>
                     <div class="server-grid">
-                        <label class="server-card service-card">
-                            <input type="checkbox" name="servers" value="mcp">
-                            <span class="server-check" aria-hidden="true">✓</span>
-                            <span class="server-kicker">KNOWLEDGE</span>
-                            <b>База знаний MCP</b>
-                            <small>Статьи, результаты и выводы лаборатории для вас и ваших ИИ-агентов</small>
-                        </label>
-                        <div class="mcp-options" id="mcp-options" hidden>
-                            <label class="field">
-                                <span>Роль в MCP</span>
-                                <select id="mcp-role" name="mcp_role">
-                                    <option value="member">Участник</option>
-                                    <option value="manager">Координатор</option>
-                                    <option value="lead">Ведущий лаборатории</option>
-                                </select>
-                                <small id="mcp-role-description">Читает общую базу, создаёт проекты; пишет в чужие после приглашения.</small>
-                            </label>
-                            <p>Роль одобряет Андрей. Доступ к MCP действует до отзыва ключа; серверный аккаунт не требуется.</p>
-                            <a href="https://brain-lab-research.github.io/claude-brainlab/lab-showcase/#memory" target="_blank" rel="noopener noreferrer">Посмотреть базу и возможности MCP ↗</a>
-                        </div>
                         <label class="server-card">
                             <input type="checkbox" name="servers" value="shkodnik_opt">
                             <span class="server-check" aria-hidden="true">✓</span>
@@ -113,11 +93,11 @@
                             <span class="server-check" aria-hidden="true">✓</span>
                             <span class="server-kicker">PILOT</span>
                             <b>Alibaba</b>
-                            <small>Нужен тот же VPN, что для H200 · отдельная заявка</small>
+                            <small>Нужен тот же VPN, что для H200 · одобряет администратор</small>
                         </label>
                     </div>
-                    <p class="section-hint"><b>Alibaba:</b> если VPN для H200 уже настроен, используйте его. Иначе пришлите ФИО и физтеховскую почту <a href="https://t.me/undef1ne5">@undef1ne5</a>, дождитесь письма от <code>helpdesk02@vkusvill.ru</code>, затем отправьте отдельную заявку на Alibaba.</p>
-                    <p class="field-error" id="servers-error" role="alert"></p>
+                    <p class="section-hint"><b>Alibaba:</b> если VPN для H200 уже настроен, используйте его. Иначе пришлите ФИО и физтеховскую почту <a href="https://t.me/undef1ne5">@undef1ne5</a> и дождитесь письма от <code>helpdesk02@vkusvill.ru</code>. Alibaba можно выбрать вместе с другими серверами: её одобряет администратор, остальные выдаются как обычно.</p>
+                    <p class="section-hint">Доступ к базе знаний MCP оформляется отдельно: кнопка «🧠 База знаний MCP» в меню бота.</p>                    <p class="field-error" id="servers-error" role="alert"></p>
                 </div>
             </section>
 
@@ -143,6 +123,6 @@
             </div>
         </form>
     </main>
-    <script src="server-form.js?v=mcp-resource-20260916"></script>
+    <script src="server-form.js?v=access-cleanup-20261001"></script>
 </body>
 </html>

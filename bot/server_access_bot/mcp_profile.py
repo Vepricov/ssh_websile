@@ -7,7 +7,7 @@ from aiogram.types import User
 from .domain import Profile
 from .service import USERNAME_RE, validate_profile
 
-FORM_URL = "https://vepricov.github.io/ssh_websile/server-form.html?server=mcp&v=mcp-resource-20260916"
+FORM_URL = "https://vepricov.github.io/ssh_websile/mcp-form.html?v=access-cleanup-20261001"
 ROLES = {
     "member": ("Участник", "Читает общую базу, создаёт свои проекты; пишет в чужие после приглашения."),
     "manager": ("Координатор", "Права участника плюс приглашение людей и управление ключами участников. Не получает запись во все проекты."),

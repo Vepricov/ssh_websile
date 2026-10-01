@@ -148,6 +148,29 @@ def test_alibaba_failure_redacts_password_from_error() -> None:
         raise AssertionError("failed Alibaba provisioning was accepted")
 
 
+def test_alibaba_failure_reports_helper_verdict_not_ssh_banner() -> None:
+    stderr = (
+        "Authorized only. All activity will be monitored and reported\n"
+        "BOT_OWNER: 101\n"
+        "[2026-10-01T16:49:22Z] выдано потолков: 5.8T, просят ещё 200G\n"
+        "[2026-10-01T16:49:22Z] ОШИБКА: потолки перестанут быть обеспечены местом.\n"
+    )
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, "", stderr)
+
+    try:
+        SshProvisioner(run=run).provision(
+            "alibaba_ascend", "alice", full_name="Alice Example", owner_id=101
+        )
+    except Exception as error:
+        assert str(error) == (
+            "alibaba_ascend: ОШИБКА: потолки перестанут быть обеспечены местом."
+        )
+    else:
+        raise AssertionError("failed Alibaba provisioning was accepted")
+
+
 def test_alibaba_username_check_uses_recovery_aware_helper() -> None:
     calls: list[list[str]] = []
 

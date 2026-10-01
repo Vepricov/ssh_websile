@@ -628,7 +628,7 @@ def test_mlsub_must_be_submitted_as_a_separate_request(tmp_path: Path) -> None:
         raise AssertionError("mlsub was combined with another server request")
 
 
-def test_alibaba_ascend_is_valid_only_as_a_separate_request(tmp_path: Path) -> None:
+def test_alibaba_ascend_can_be_requested_with_other_servers(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
     service = AccessService(storage, FakeProvisioner())
     base = dict(
@@ -642,15 +642,9 @@ def test_alibaba_ascend_is_valid_only_as_a_separate_request(tmp_path: Path) -> N
     )
 
     service.validate_request(Application(servers=("alibaba_ascend",), **base))
-
-    try:
-        service.validate_request(
-            Application(servers=("alibaba_ascend", "brain_lab"), **base)
-        )
-    except ValidationError as error:
-        assert "Alibaba оформляется отдельной заявкой" in str(error)
-    else:
-        raise AssertionError("Alibaba was combined with another server request")
+    service.validate_request(
+        Application(servers=("alibaba_ascend", "brain_lab"), **base)
+    )
 
 
 def test_granting_alibaba_provisions_and_records_encrypted_access(

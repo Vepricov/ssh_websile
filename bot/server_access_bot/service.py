@@ -193,14 +193,6 @@ class AccessService:
             )
         if (
             "alibaba_ascend" in application.servers
-            and len(application.servers) != 1
-        ):
-            raise ValidationError(
-                "Alibaba оформляется отдельной заявкой. Уберите остальные "
-                "серверы и отправьте заявку только на Alibaba."
-            )
-        if (
-            "alibaba_ascend" in application.servers
             and not ALIBABA_USERNAME_RE.fullmatch(application.server_username)
         ):
             raise ValidationError(

@@ -11,7 +11,7 @@ class Bridge:
     def __init__(self):
         self.calls = []
 
-    def issue(self, user_id, token, role="member"):
+    def issue(self, user_id, token, role="member", username="", full_name=""):
         self.calls.append((user_id, token))
         return {"email": f"telegram-{user_id}@users.brainlab-ai.com", "role": role}
 
@@ -39,7 +39,7 @@ def test_approval_is_required_and_retry_keeps_the_same_identity_and_secret(tmp_p
 
 def test_failed_remote_reply_can_be_retried_after_restart(tmp_path):
     class LostReply(Bridge):
-        def issue(self, user_id, token, role="member"):
+        def issue(self, user_id, token, role="member", username="", full_name=""):
             result = super().issue(user_id, token, role)
             if len(self.calls) == 1:
                 raise TimeoutError("reply lost after commit")
@@ -162,7 +162,7 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
         assert "Для какого проекта" not in intro.text
         assert "Напишите одним сообщением" not in intro.text
         assert "https://brain-lab-research.github.io/claude-brainlab/lab-showcase/" in intro.text
-        assert any(button.web_app and "/server-form.html?server=mcp" in button.web_app.url
+        assert any(button.web_app and "/mcp-form.html" in button.web_app.url
                    for row in intro.reply_markup.keyboard for button in row)
         assert service.get(42) is None
         submission = message(42, "")

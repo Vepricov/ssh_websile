@@ -25,14 +25,6 @@
             .filter(Boolean),
     );
     const storageKey = "brainlab_server_request_v1";
-    const mcpOptions = document.getElementById("mcp-options");
-    const mcpRole = document.getElementById("mcp-role");
-    const termSection = document.querySelector('[aria-labelledby="term-title"]');
-    const roleDescriptions = {
-        member: "Читает общую базу, создаёт проекты; пишет в чужие после приглашения.",
-        manager: "Права участника плюс приглашение людей и управление ключами участников. Не получает запись во все проекты.",
-        lead: "Управляет всеми проектами, доступами и глобальными ролями лаборатории.",
-    };
     let submitted = false;
     let touched = false;
     let saveTimer;
@@ -71,7 +63,7 @@
                 return;
             }
             if (typeof draft.server_username === "string") {
-                serverUsername.value = draft.server_username;
+                serverUsername.value = draft.server_username.toLowerCase();
             }
             if (typeof draft.activity === "string") {
                 activity.value = draft.activity;
@@ -86,7 +78,6 @@
             ) {
                 accessDate.value = draft.access_term;
             }
-            if (Object.hasOwn(roleDescriptions, draft.mcp_role)) mcpRole.value = draft.mcp_role;
             if (Array.isArray(draft.servers)) {
                 for (const input of form.querySelectorAll('input[name="servers"]')) {
                     input.checked = draft.servers.includes(input.value);
@@ -114,7 +105,6 @@
                 access_term: indefinite.checked ? "бессрочно" : accessDate.value,
                 activity: activity.value,
                 servers: selectedServers(),
-                mcp_role: mcpRole.value,
             }),
         );
     }
@@ -145,15 +135,6 @@
         if (requestedCheckbox && !requestedCheckbox.disabled) {
             requestedCheckbox.checked = true;
         }
-        updateSelection();
-    }
-
-    function updateSelection() {
-        const selected = selectedServers();
-        mcpOptions.hidden = !selected.includes("mcp");
-        termSection.hidden = selected.includes("mcp") && selected.length === 1;
-        accessDate.disabled = termSection.hidden || indefinite.checked;
-        document.getElementById("mcp-role-description").textContent = roleDescriptions[mcpRole.value];
     }
 
     loadDraft();
@@ -174,16 +155,16 @@
         setError(termError, "");
         setError(serversError, "");
         formError.hidden = true;
-        const servers = payload.servers.filter((host) => host !== "mcp");
-        if (servers.length && !payload.access_term) {
+        const servers = payload.servers;
+        if (!payload.access_term) {
             setError(termError, "Укажите дату окончания или включите «Бессрочно».");
             valid = false;
-        } else if (servers.length && payload.access_term !== "бессрочно" && payload.access_term < todayIso) {
+        } else if (payload.access_term !== "бессрочно" && payload.access_term < todayIso) {
             setError(termError, "Дата окончания не может быть в прошлом.");
             valid = false;
         }
-        if (payload.servers.length === 0) {
-            setError(serversError, "Выберите хотя бы один ресурс.");
+        if (servers.length === 0) {
+            setError(serversError, "Выберите хотя бы один сервер.");
             valid = false;
         } else if (
             servers.includes("mlsub")
@@ -191,16 +172,7 @@
         ) {
             setError(
                 serversError,
-                "mlsub оформляется отдельной заявкой. Выберите mlsub без других серверов. MCP можно оставить.",
-            );
-            valid = false;
-        } else if (
-            servers.includes("alibaba_ascend")
-            && servers.length > 1
-        ) {
-            setError(
-                serversError,
-                "Alibaba оформляется отдельной заявкой. Выберите Alibaba без других серверов. MCP можно оставить.",
+                "mlsub оформляется отдельной заявкой. Выберите mlsub без других серверов.",
             );
             valid = false;
         } else if (
@@ -230,6 +202,15 @@
         activityCount.textContent = String(activity.value.length);
     });
 
+    serverUsername.addEventListener("input", () => {
+        const lowered = serverUsername.value.toLowerCase();
+        if (lowered !== serverUsername.value) {
+            const caret = serverUsername.selectionStart;
+            serverUsername.value = lowered;
+            serverUsername.setSelectionRange(caret, caret);
+        }
+    });
+
     form.addEventListener("input", () => {
         touched = true;
         serverUsername.setCustomValidity("");
@@ -238,7 +219,6 @@
     });
 
     form.addEventListener("change", () => {
-        updateSelection();
         touched = true;
         serverUsername.setCustomValidity("");
         queueDraftSave();
@@ -252,12 +232,11 @@
         const payload = {
             version: 1,
             kind: "server_request",
-            server_username: serverUsername.value.trim(),
-            access_term: termSection.hidden ? "" : (indefinite.checked ? "бессрочно" : accessDate.value),
+            server_username: serverUsername.value.trim().toLowerCase(),
+            access_term: indefinite.checked ? "бессрочно" : accessDate.value,
             activity: activity.value.trim(),
             servers: selectedServers(),
         };
-        if (payload.servers.includes("mcp")) payload.mcp_role = mcpRole.value;
         if (!validateSelection(payload)) {
             return;
         }

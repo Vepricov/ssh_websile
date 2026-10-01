@@ -38,7 +38,7 @@ class Bridge:
     def __init__(self):
         self.calls = []
 
-    def issue(self, user_id, token, role="member"):
+    def issue(self, user_id, token, role="member", username="", full_name=""):
         self.calls.append((user_id, role))
         return {"email": f"telegram-{user_id}@users.brainlab-ai.com", "role": role,
                 "user_id": str(user_id), "telegram_user_id": user_id}
@@ -200,4 +200,29 @@ def test_typed_mcp_application_gets_form_help_without_creating_request(tmp_path)
         count = len(telegram.sent)
         await dispatcher.feed_update(bot, Update(update_id=4, message=text(application)))
         assert len(telegram.sent) == count
+    asyncio.run(scenario())
+
+
+def test_server_form_splits_alibaba_into_its_own_admin_request(tmp_path):
+    async def scenario():
+        storage = Storage(tmp_path / "db", b"a" * 32)
+        storage.save_profile(Profile(42, "alice_tg", "Alice Smith", "Bob Jones"))
+        mcp = McpAccessService(storage, Bridge(), frozenset({1}))
+        telegram = Telegram()
+        bot = Bot("123456:abcdef", session=telegram)
+        dispatcher = Dispatcher()
+        dispatcher.include_router(build_router(
+            AccessService(storage, Provisioner(), ascend_group_url="https://t.me/+test"),
+            object(), admin_user_ids=frozenset({1}), mcp_service=mcp))
+        payload = dict(version=1, kind="server_request", server_username="alice",
+                       access_term="бессрочно", activity="", servers=["brain_lab", "alibaba_ascend"])
+        await dispatcher.feed_update(bot, Update(update_id=1, message=message(payload)))
+        notices = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1]
+        assert len(notices) == 2
+        assert "Заявка на Alibaba" in notices[1].text
+        claimed = []
+        for notice in notices:
+            request_id = notice.reply_markup.inline_keyboard[0][0].callback_data.rsplit(":", 1)[-1]
+            claimed.append(storage.claim_pending_request(request_id).servers)
+        assert claimed == [("brain_lab",), ("alibaba_ascend",)]
     asyncio.run(scenario())

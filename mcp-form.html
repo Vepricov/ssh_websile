@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <title>BRAIn Lab — доступ к базе знаний</title>
-    <link rel="stylesheet" href="access-form.css">
+    <link rel="stylesheet" href="access-form.css?v=access-cleanup-20261001">
     <style>
         .form-header a { color: var(--accent); text-underline-offset: 4px; }
         .server-card small { font-size: 12px; line-height: 1.45; }
@@ -33,7 +33,7 @@
                         </label>
                         <label class="field field-wide"><span>Ник</span>
                             <input id="username" autocapitalize="none" autocomplete="username" spellcheck="false" maxlength="32" pattern="[a-z_][a-z0-9_\-]{0,31}" placeholder="ivan_ivanov" required>
-                            <small>Можно использовать тот же ник, что на серверах. Он будет виден в заявке и сообщении о доступе.</small>
+                            <small>Строчные латинские буквы, цифры, «_» и «-». Заглавные переводятся в строчные автоматически. Можно взять тот же ник, что на серверах.</small>
                         </label>
                         <label class="field field-wide"><span>Рекомендатель</span>
                             <input id="recommender" maxlength="120" placeholder="Имя или @username">
@@ -80,6 +80,6 @@
             </button></div>
         </form>
     </main>
-    <script src="mcp-form.js?v=free-recommender-20260929"></script>
+    <script src="mcp-form.js?v=access-cleanup-20261001"></script>
 </body>
 </html>

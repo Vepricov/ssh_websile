@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import dataclasses
 import html
 import json
 import logging
@@ -30,6 +31,9 @@ from aiogram.types import (
 
 from .config import Settings
 from .mcp_access import McpAccessService, McpBridge
+from .gitlab_access import (build_gitlab_router, run_gitlab_access_loop,
+                            включено as gitlab_включён)
+from .gitlab_notify import run_gitlab_notify_loop
 from .mcp_router import MCP_MENU, build_mcp_router, submit_application as submit_mcp_application
 from .mcp_profile import parse_application as parse_mcp_application
 from .disk_monitoring import (
@@ -150,7 +154,7 @@ def server_form_url(
         query["username"] = server_username
     if existing_services:
         query["existing"] = ",".join(dict.fromkeys(existing_services))
-    query["v"] = "2-a100-brain-20260929"
+    query["v"] = "access-cleanup-20261001"
     return f"{SERVER_FORM_URL}?{urlencode(query)}"
 
 
@@ -181,7 +185,7 @@ def main_menu(
                 KeyboardButton(text="📚 Сайт и правила"),
                 KeyboardButton(text="📡 Статус серверов"),
             ],
-            [KeyboardButton(text=MCP_MENU, web_app=WebAppInfo(url=server_form_url(requested_server="mcp", server_username=server_username, existing_services=existing_services)))],
+            [KeyboardButton(text=MCP_MENU)],
         ],
         resize_keyboard=True,
     )
@@ -449,6 +453,17 @@ def request_requires_admin(
         or (mlsub_is_missing and "mlsub" in application.servers)
         or "alibaba_ascend" in application.servers
     )
+
+
+def split_external_application(application: Application) -> list[Application]:
+    """Alibaba is approved by hand, so it travels as its own request."""
+    if "alibaba_ascend" not in application.servers or len(application.servers) == 1:
+        return [application]
+    rest = tuple(host for host in application.servers if host != "alibaba_ascend")
+    return [
+        dataclasses.replace(application, servers=rest),
+        dataclasses.replace(application, servers=("alibaba_ascend",)),
+    ]
 
 
 def application_data(application: Application) -> dict[str, object]:
@@ -1097,6 +1112,109 @@ def build_router(
             reply_markup=profile_form_menu(),
         )
 
+    async def route_application(
+        message: Message, bot: Bot, application: Application
+    ) -> None:
+        if message.from_user is None:
+            return
+        known_user = await asyncio.to_thread(
+            service.storage.application_for, message.from_user.id
+        )
+        registry = await asyncio.to_thread(
+            service.storage.registry_match_for, message.from_user.id
+        )
+        mlsub_is_missing = not await asyncio.to_thread(
+            service.storage.has_access, message.from_user.id, "mlsub"
+        ) and not await asyncio.to_thread(
+            service.storage.has_registered_service,
+            message.from_user.id,
+            "mlsub",
+        )
+        if not request_requires_admin(
+            application,
+            user_is_known=known_user is not None or registry is not None,
+            mlsub_is_missing=mlsub_is_missing,
+        ):
+            await provision_application(
+                message.chat.id, message.from_user, application, bot
+            )
+            return
+        if not admin_user_ids:
+            await message.answer(
+                "Новые заявки временно не принимаются: администратор не настроен.",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+            return
+        request_id = secrets.token_urlsafe(8)
+        is_ascend = application.servers == ("alibaba_ascend",)
+        if is_ascend and not service.ascend_group_url:
+            await message.answer(
+                "Заявки на Alibaba временно недоступны: "
+                "администратор ещё не настроил ссылку на группу.",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+            return
+        try:
+            await asyncio.to_thread(
+                service.storage.save_pending_request,
+                request_id,
+                application,
+                remind_at=(
+                    int(time.time()) + ASCEND_REMINDER_INTERVAL_SECONDS
+                    if is_ascend
+                    else None
+                ),
+            )
+        except PendingRequestExistsError:
+            await message.answer(
+                "У вас уже есть активная заявка на этот ресурс. "
+                "Дождитесь решения администратора.",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+            return
+        for admin_id in admin_user_ids:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    (
+                        "<b>Заявка на Alibaba</b>\n\n"
+                        if is_ascend
+                        else (
+                            "<b>Отдельная заявка на mlsub</b>\n\n"
+                            if "mlsub" in application.servers
+                            else "<b>Новая заявка на доступ</b>\n\n"
+                        )
+                    )
+                    + application_summary(application_data(application)),
+                    reply_markup=(
+                        ascend_admin_keyboard(
+                            request_id,
+                            application.full_name,
+                            application.telegram_username,
+                            application.telegram_user_id,
+                        )
+                        if is_ascend
+                        else admin_approval_keyboard(request_id)
+                    ),
+                )
+            except Exception:
+                LOGGER.exception("Could not notify access admin %s", admin_id)
+        if is_ascend:
+            await message.answer(
+                "Заявка на Alibaba отправлена администратору. После одобрения "
+                "бот сам создаст аккаунт и пришлёт логин, пароль и инструкции.\n\n"
+                f"{ALIBABA_VPN_NOTE}\n\n"
+                f'<a href="{html.escape(service.ascend_group_url, quote=True)}">'
+                "Вступить в общую Telegram-группу</a>",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+        else:
+            await message.answer(
+                "Заявка отправлена администратору. Больше ничего заполнять не нужно: "
+                "после одобрения бот сам пришлёт доступы.",
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+
     @router.message(F.web_app_data)
     async def web_app_form(message: Message, state: FSMContext, bot: Bot) -> None:
         if (
@@ -1202,107 +1320,11 @@ def build_router(
             return
         if mcp_data is not None:
             await submit_mcp_application(message, bot, mcp_service, mcp_data)
-            if application is None:
-                await state.clear()
-                return
-        known_user = await asyncio.to_thread(
-            service.storage.application_for, message.from_user.id
-        )
-        registry = await asyncio.to_thread(
-            service.storage.registry_match_for, message.from_user.id
-        )
-        mlsub_is_missing = not await asyncio.to_thread(
-            service.storage.has_access, message.from_user.id, "mlsub"
-        ) and not await asyncio.to_thread(
-            service.storage.has_registered_service,
-            message.from_user.id,
-            "mlsub",
-        )
         await state.clear()
-        if not request_requires_admin(
-            application,
-            user_is_known=known_user is not None or registry is not None,
-            mlsub_is_missing=mlsub_is_missing,
-        ):
-            await provision_application(
-                message.chat.id, message.from_user, application, bot
-            )
+        if application is None:
             return
-        if not admin_user_ids:
-            await message.answer(
-                "Новые заявки временно не принимаются: администратор не настроен.",
-                reply_markup=await personalized_main_menu(message.from_user.id),
-            )
-            return
-        request_id = secrets.token_urlsafe(8)
-        is_ascend = application.servers == ("alibaba_ascend",)
-        if is_ascend and not service.ascend_group_url:
-            await message.answer(
-                "Заявки на Alibaba временно недоступны: "
-                "администратор ещё не настроил ссылку на группу.",
-                reply_markup=await personalized_main_menu(message.from_user.id),
-            )
-            return
-        try:
-            await asyncio.to_thread(
-                service.storage.save_pending_request,
-                request_id,
-                application,
-                remind_at=(
-                    int(time.time()) + ASCEND_REMINDER_INTERVAL_SECONDS
-                    if is_ascend
-                    else None
-                ),
-            )
-        except PendingRequestExistsError:
-            await message.answer(
-                "У вас уже есть активная заявка на этот ресурс. "
-                "Дождитесь решения администратора.",
-                reply_markup=await personalized_main_menu(message.from_user.id),
-            )
-            return
-        for admin_id in admin_user_ids:
-            try:
-                await bot.send_message(
-                    admin_id,
-                    (
-                        "<b>Заявка на Alibaba</b>\n\n"
-                        if is_ascend
-                        else (
-                            "<b>Отдельная заявка на mlsub</b>\n\n"
-                            if "mlsub" in application.servers
-                            else "<b>Новая заявка на доступ</b>\n\n"
-                        )
-                    )
-                    + application_summary(application_data(application)),
-                    reply_markup=(
-                        ascend_admin_keyboard(
-                            request_id,
-                            application.full_name,
-                            application.telegram_username,
-                            application.telegram_user_id,
-                        )
-                        if is_ascend
-                        else admin_approval_keyboard(request_id)
-                    ),
-                )
-            except Exception:
-                LOGGER.exception("Could not notify access admin %s", admin_id)
-        if is_ascend:
-            await message.answer(
-                "Заявка на Alibaba отправлена администратору. После одобрения "
-                "бот сам создаст аккаунт и пришлёт логин, пароль и инструкции.\n\n"
-                f"{ALIBABA_VPN_NOTE}\n\n"
-                f'<a href="{html.escape(service.ascend_group_url, quote=True)}">'
-                "Вступить в общую Telegram-группу</a>",
-                reply_markup=await personalized_main_menu(message.from_user.id),
-            )
-        else:
-            await message.answer(
-                "Заявка отправлена администратору. Больше ничего заполнять не нужно: "
-                "после одобрения бот сам пришлёт доступы.",
-                reply_markup=await personalized_main_menu(message.from_user.id),
-            )
+        for part in split_external_application(application):
+            await route_application(message, bot, part)
 
     @router.callback_query(
         Form.registry_confirm, F.data.startswith("registry:confirm:")
@@ -1448,15 +1470,22 @@ def build_router(
         await callback.answer("Создаю аккаунт…")
         try:
             access = await asyncio.to_thread(service.grant_external_access, application)
-        except Exception:
+        except Exception as error:
             LOGGER.exception("Could not confirm Alibaba access request %s", request_id)
             await asyncio.to_thread(
                 service.storage.release_pending_request_claim, request_id
             )
+            reason = (
+                str(error).removeprefix("alibaba_ascend: ")
+                if isinstance(error, (ProvisioningError, ValidationError))
+                else "внутренняя ошибка бота, подробности в журнале службы"
+            )
             if callback.message:
                 await callback.message.answer(
-                    "Не удалось создать доступ Alibaba. Кнопка остаётся активной; "
-                    "попробуйте ещё раз."
+                    "Не удалось создать доступ Alibaba.\n\n"
+                    f"Причина: <code>{html.escape(reason)}</code>\n\n"
+                    "Кнопка остаётся активной: нажмите её снова, когда причина "
+                    "будет устранена."
                 )
             return
         try:
@@ -2058,6 +2087,9 @@ async def run(settings: Settings) -> None:
         mcp_service,
         settings.mcp_testing_group_url,
     ))
+    # Заявки на доступ в GitLab: решаются кнопкой в телеграме. Роутер подключается всегда,
+    # а опрос — только когда есть ключ: без ключа опрашивать нечего.
+    dispatcher.include_router(build_gitlab_router(settings.mcp_admin_user_ids))
     dispatcher.include_router(
         build_router(
             service,
@@ -2076,6 +2108,15 @@ async def run(settings: Settings) -> None:
     sheets_reconciliation_task = asyncio.create_task(
         run_sheets_reconciliation_loop(storage, sheets)
     )
+    gitlab_access_task = None
+    gitlab_notify_task = None
+    if gitlab_включён():
+        gitlab_access_task = asyncio.create_task(
+            run_gitlab_access_loop(bot, settings.mcp_admin_user_ids)
+        )
+        gitlab_notify_task = asyncio.create_task(
+            run_gitlab_notify_loop(bot, settings.mcp_admin_user_ids)
+        )
     if settings.admin_user_ids:
         ascend_reminder_task = asyncio.create_task(
             run_ascend_reminder_loop(bot, storage, settings.admin_user_ids)
