@@ -152,6 +152,12 @@ class Storage:
                     sampled_at INTEGER NOT NULL,
                     PRIMARY KEY (host, filesystem_key, sampled_at)
                 );
+                CREATE TABLE IF NOT EXISTS admin_dashboards (
+                    telegram_user_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    message_id INTEGER NOT NULL,
+                    PRIMARY KEY (telegram_user_id, kind)
+                );
                 CREATE TABLE IF NOT EXISTS disk_alert_state (
                     host TEXT NOT NULL,
                     filesystem_key TEXT NOT NULL,
@@ -416,6 +422,31 @@ class Storage:
                 (host, filesystem_key, level, last_notified_at),
             )
         return should_notify
+
+    def dashboard_message_id(self, telegram_user_id: int, kind: str) -> int | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT message_id FROM admin_dashboards
+                WHERE telegram_user_id = ? AND kind = ?
+                """,
+                (telegram_user_id, kind),
+            ).fetchone()
+        return None if row is None else int(row["message_id"])
+
+    def set_dashboard_message_id(
+        self, telegram_user_id: int, kind: str, message_id: int
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO admin_dashboards (telegram_user_id, kind, message_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(telegram_user_id, kind) DO UPDATE SET
+                    message_id = excluded.message_id
+                """,
+                (telegram_user_id, kind, message_id),
+            )
 
     def disk_alert_level(self, host: str, filesystem_key: str) -> str | None:
         with self._connect() as db:

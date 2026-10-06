@@ -2171,7 +2171,6 @@ async def run(settings: Settings) -> None:
                 disk_scanner,
                 interval_seconds=settings.disk_monitor_interval_seconds,
                 admin_user_ids=settings.admin_user_ids,
-                registry_lookup=sheets.find_registry_user_by_server_username,
             )
         )
     await bot.set_my_commands(
