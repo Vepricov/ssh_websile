@@ -12,9 +12,12 @@ from server_access_bot.domain import (
     RegistryMatch,
 )
 from server_access_bot.monitoring import (
+    DRIVER_HUNG_EXIT_CODE,
     PUBLIC_SERVER_NAMES,
     GpuFleetScanner,
+    GpuScan,
     GpuStatusScanner,
+    deliver_driver_hang_alerts,
     deliver_gpu_idle_incidents,
     format_gpu_status,
     format_user_idle_notification,
@@ -449,3 +452,78 @@ def test_admin_notification_uses_natural_server_phrase(tmp_path) -> None:
     text = bot.messages[0][1]
     assert "Привет! На новом сервере (BrainLab)" in text
     assert "На сервере Новый сервер" not in text
+
+
+HUNG_OUTPUT = (
+    "DRIVER_HUNG stuck=191\n"
+    "[Tue Oct  6 15:35:06 2026] NVRM: nvAssertFailedNoLog: Assertion failed: "
+    "rmGpuLocksGetOwnedMask() == 0 @ rmapi.c:566\n"
+)
+
+
+def test_fleet_scanner_reports_hung_driver_instead_of_candidates() -> None:
+    def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        return DRIVER_HUNG_EXIT_CODE, HUNG_OUTPUT
+
+    scan = GpuFleetScanner(
+        hosts=("shkodnik_opt",),
+        memory_threshold_mb=4096,
+        utilization_threshold_percent=2,
+        runner=runner,
+    ).scan()
+
+    assert scan.reachable_hosts == ()
+    assert scan.candidates == ()
+    assert scan.driver_hung[0][0] == "shkodnik_opt"
+    assert "rmGpuLocksGetOwnedMask" in scan.driver_hung[0][1]
+
+
+def test_nvidia_queries_never_start_while_a_call_is_stuck() -> None:
+    for command in (GpuFleetScanner.GPU_QUERY, GpuFleetScanner.PROCESS_QUERY):
+        script = command[2]
+        assert script.index("stuck=") < script.index("nvidia-smi --query")
+        assert "$2 >= 60" in script
+        assert f"exit {DRIVER_HUNG_EXIT_CODE}" in script
+        assert 'kill -9 "$p"' in script
+
+
+def test_status_shows_hung_driver_not_ssh_failure() -> None:
+    def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        return DRIVER_HUNG_EXIT_CODE, HUNG_OUTPUT
+
+    statuses = GpuStatusScanner(hosts=("shkodnik_opt",), runner=runner).scan()
+    text = format_gpu_status(statuses)
+
+    assert statuses[0].driver_hung is True
+    assert "Драйвер GPU завис" in text
+    assert "недоступен по SSH" not in text
+
+
+def test_driver_hang_alert_is_sent_once_then_recovery(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+
+    class FakeBot:
+        def __init__(self) -> None:
+            self.sent: list[tuple[int, str]] = []
+
+        async def send_message(self, chat_id: int, text: str, **kwargs) -> None:
+            self.sent.append((chat_id, text))
+
+    bot = FakeBot()
+    hung = GpuScan(
+        reachable_hosts=("brain_lab",),
+        candidates=(),
+        driver_hung=(("shkodnik_opt", HUNG_OUTPUT.strip()),),
+    )
+    healthy = GpuScan(reachable_hosts=("brain_lab", "shkodnik_opt"), candidates=())
+    admins = frozenset({1})
+
+    asyncio.run(deliver_driver_hang_alerts(bot, storage, hung, admin_user_ids=admins, now=1000))
+    asyncio.run(deliver_driver_hang_alerts(bot, storage, hung, admin_user_ids=admins, now=1300))
+    asyncio.run(deliver_driver_hang_alerts(bot, storage, healthy, admin_user_ids=admins, now=1600))
+    asyncio.run(deliver_driver_hang_alerts(bot, storage, healthy, admin_user_ids=admins, now=1900))
+
+    assert len(bot.sent) == 2
+    assert "драйвер NVIDIA завис" in bot.sent[0][1]
+    assert "rmGpuLocksGetOwnedMask" in bot.sent[0][1]
+    assert "снова отвечает" in bot.sent[1][1]

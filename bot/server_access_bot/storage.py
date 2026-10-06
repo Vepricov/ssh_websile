@@ -417,6 +417,17 @@ class Storage:
             )
         return should_notify
 
+    def disk_alert_level(self, host: str, filesystem_key: str) -> str | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT last_level FROM disk_alert_state
+                WHERE host = ? AND filesystem_key = ?
+                """,
+                (host, filesystem_key),
+            ).fetchone()
+        return None if row is None else str(row["last_level"])
+
     def latest_disk_sample_for_path(
         self, host: str, path: str
     ) -> DiskUsageSample | None:
