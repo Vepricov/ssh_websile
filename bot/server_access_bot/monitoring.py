@@ -45,10 +45,52 @@ SERVER_LOCATIONS = {
 }
 
 
+DRIVER_HUNG_EXIT_CODE = 75
+DRIVER_HUNG_MARKER = "DRIVER_HUNG"
+DRIVER_ALERT_KEY = "nvidia-driver"
+DRIVER_ALERT_COOLDOWN_SECONDS = 6 * 3600
+
+
+def _guarded_nvidia_smi(arguments: str, post: str = 'cat "$out"') -> tuple[str, ...]:
+    """Run nvidia-smi without ever adding to a pile of hung calls.
+
+    A wedged NVIDIA driver leaves every nvidia-smi in uninterruptible sleep, so
+    a plain call never returns and is never reaped. If one has been stuck for a
+    minute, report the hang instead of starting another; otherwise wait a
+    bounded time and report a hang on timeout. Exit code 75 means "hung".
+    """
+    script = (
+        "hung() { echo \"" + DRIVER_HUNG_MARKER + " $1\"; "
+        "dmesg -T 2>/dev/null | grep -E 'NVRM|Xid' | tail -n 3; "
+        "exit " + str(DRIVER_HUNG_EXIT_CODE) + "; }; "
+        "stuck=$(ps -eo stat=,etimes=,comm= | "
+        "awk '$1 ~ /^D/ && $2 >= 60 && $3 == \"nvidia-smi\"' | wc -l); "
+        "[ \"$stuck\" -gt 0 ] && hung \"stuck=$stuck\"; "
+        "out=$(mktemp) || exit 1; "
+        "nvidia-smi " + arguments + " >\"$out\" 2>/dev/null & p=$!; "
+        "i=0; while kill -0 \"$p\" 2>/dev/null && [ \"$i\" -lt 30 ]; "
+        "do sleep 0.5; i=$((i+1)); done; "
+        "if kill -0 \"$p\" 2>/dev/null; then kill -9 \"$p\" 2>/dev/null; "
+        "rm -f \"$out\"; hung timeout; fi; "
+        "wait \"$p\"; rc=$?; "
+        "if [ \"$rc\" -ne 0 ]; then rm -f \"$out\"; exit \"$rc\"; fi; "
+        + post + "; rm -f \"$out\""
+    )
+    return ("/bin/sh", "-lc", script)
+
+
+def driver_hang_detail(output: str) -> str:
+    lines = output.strip().splitlines()
+    if not lines or not lines[0].startswith(DRIVER_HUNG_MARKER):
+        return ""
+    return "\n".join(lines[:4])
+
+
 @dataclass(frozen=True)
 class GpuScan:
     reachable_hosts: tuple[str, ...]
     candidates: tuple[GpuIdleCandidate, ...]
+    driver_hung: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -66,6 +108,7 @@ class ServerGpuStatus:
     reachable: bool
     devices: tuple[GpuDeviceStatus, ...]
     summary: str | None = None
+    driver_hung: bool = False
 
 
 @dataclass(frozen=True)
@@ -92,16 +135,13 @@ class GpuIdlePolicy:
 
 
 class GpuFleetScanner:
-    GPU_QUERY = (
-        "nvidia-smi",
-        "--query-gpu=index,uuid,name,memory.total,memory.used,memory.free,utilization.gpu",
-        "--format=csv,noheader,nounits",
+    GPU_QUERY = _guarded_nvidia_smi(
+        "--query-gpu=index,uuid,name,memory.total,memory.used,memory.free,"
+        "utilization.gpu --format=csv,noheader,nounits"
     )
-    PROCESS_QUERY = (
-        "/bin/sh",
-        "-lc",
-        "nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory "
-        "--format=csv,noheader,nounits 2>/dev/null | "
+    PROCESS_QUERY = _guarded_nvidia_smi(
+        "--query-compute-apps=gpu_uuid,pid,used_memory "
+        "--format=csv,noheader,nounits",
         "while IFS=, read -r uuid pid memory; do "
         "uuid=$(printf '%s' \"$uuid\" | tr -d ' '); "
         "pid=$(printf '%s' \"$pid\" | tr -d ' '); "
@@ -111,7 +151,8 @@ class GpuFleetScanner:
         "user=$(printf '%s' \"$meta\" | awk '{print $1}'); "
         "elapsed=$(printf '%s' \"$meta\" | awk '{print $2}'); "
         "printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "
-        "\"$uuid\" \"$pid\" \"$memory\" \"$user\" \"$elapsed\"; done",
+        "\"$uuid\" \"$pid\" \"$memory\" \"$user\" \"$elapsed\"; "
+        "done <\"$out\"",
     )
 
     def __init__(
@@ -195,9 +236,16 @@ class GpuFleetScanner:
 
         reachable = []
         candidates = []
+        driver_hung = []
         for host in self.hosts:
             gpu_rc, gpu_text = futures[(host, self.GPU_QUERY)].result()
             process_rc, process_text = futures[(host, self.PROCESS_QUERY)].result()
+            if DRIVER_HUNG_EXIT_CODE in (gpu_rc, process_rc):
+                detail = driver_hang_detail(gpu_text) or driver_hang_detail(
+                    process_text
+                )
+                driver_hung.append((host, detail))
+                continue
             if gpu_rc != 0 or process_rc != 0:
                 continue
             reachable.append(host)
@@ -231,6 +279,7 @@ class GpuFleetScanner:
                     key=lambda item: (item.host, item.gpu_index, item.server_username),
                 )
             ),
+            driver_hung=tuple(driver_hung),
         )
 
     def _parse_gpus(self, text: str) -> dict[str, tuple[int, int]]:
@@ -301,6 +350,13 @@ class GpuStatusScanner:
         statuses = []
         for host in self.hosts:
             return_code, output = futures[host].result()
+            if return_code == DRIVER_HUNG_EXIT_CODE and host != "alibaba_ascend":
+                statuses.append(
+                    ServerGpuStatus(
+                        host=host, reachable=True, devices=(), driver_hung=True
+                    )
+                )
+                continue
             statuses.append(
                 ServerGpuStatus(
                     host=host,
@@ -390,6 +446,13 @@ def format_gpu_status(
                 f"🔴 <b>{server_name}</b>\nСервер недоступен по SSH."
             )
             continue
+        if status.driver_hung:
+            sections.append(
+                f"🔴 <b>{server_name}</b>\n"
+                "Драйвер GPU завис: nvidia-smi не отвечает, задачи на GPU стоят. "
+                "Нужна перезагрузка сервера."
+            )
+            continue
         if not status.devices:
             if status.summary:
                 sections.append(
@@ -444,10 +507,12 @@ class GpuIdleMonitor:
         self.storage = storage
         self.scanner = scanner
         self.policy = policy
+        self.last_scan: GpuScan | None = None
 
     def check(self, *, now: int | None = None) -> list[GpuIdleIncident]:
         checked_at = int(time.time()) if now is None else now
         scan = self.scanner.scan()
+        self.last_scan = scan
         return self.storage.update_gpu_idle_observations(
             scan.candidates,
             reachable_hosts=scan.reachable_hosts,
@@ -671,6 +736,69 @@ async def deliver_gpu_idle_incidents(
     return keys
 
 
+def format_driver_hang_alert(host: str, detail: str) -> str:
+    server_name = html.escape(PUBLIC_SERVER_NAMES.get(host, host))
+    lines = [
+        f"🔴 <b>{server_name}: драйвер NVIDIA завис</b>",
+        "nvidia-smi не отвечает, задачи на GPU стоят, новые не запустятся. "
+        "Сам драйвер не восстановится: нужна перезагрузка сервера.",
+    ]
+    if detail:
+        lines.append(f"<pre>{html.escape(detail)}</pre>")
+    lines.append(
+        f"Напомню через {DRIVER_ALERT_COOLDOWN_SECONDS // 3600} ч, "
+        "если не починится."
+    )
+    return "\n\n".join(lines)
+
+
+def format_driver_recovered_alert(host: str) -> str:
+    server_name = html.escape(PUBLIC_SERVER_NAMES.get(host, host))
+    return f"✅ <b>{server_name}</b>: драйвер NVIDIA снова отвечает."
+
+
+async def deliver_driver_hang_alerts(
+    bot: object,
+    storage: Storage,
+    scan: GpuScan,
+    *,
+    admin_user_ids: frozenset[int],
+    now: int,
+) -> None:
+    messages = []
+    for host, detail in scan.driver_hung:
+        if await asyncio.to_thread(
+            storage.claim_disk_alert,
+            host,
+            DRIVER_ALERT_KEY,
+            "critical",
+            now=now,
+            cooldown_seconds=DRIVER_ALERT_COOLDOWN_SECONDS,
+        ):
+            messages.append(format_driver_hang_alert(host, detail))
+    for host in scan.reachable_hosts:
+        previous = await asyncio.to_thread(
+            storage.disk_alert_level, host, DRIVER_ALERT_KEY
+        )
+        if previous in (None, "normal"):
+            continue
+        await asyncio.to_thread(
+            storage.claim_disk_alert,
+            host,
+            DRIVER_ALERT_KEY,
+            "normal",
+            now=now,
+            cooldown_seconds=DRIVER_ALERT_COOLDOWN_SECONDS,
+        )
+        messages.append(format_driver_recovered_alert(host))
+    for text in messages:
+        for admin_id in sorted(admin_user_ids):
+            try:
+                await bot.send_message(admin_id, text)
+            except Exception:
+                LOGGER.exception("Could not send driver alert to %s", admin_id)
+
+
 async def run_gpu_idle_monitor(
     bot: object,
     monitor: GpuIdleMonitor,
@@ -684,6 +812,14 @@ async def run_gpu_idle_monitor(
         try:
             now = int(time.time())
             incidents = await asyncio.to_thread(monitor.check, now=now)
+            if monitor.last_scan is not None:
+                await deliver_driver_hang_alerts(
+                    bot,
+                    monitor.storage,
+                    monitor.last_scan,
+                    admin_user_ids=admin_user_ids,
+                    now=now,
+                )
             if incidents:
                 await deliver_gpu_idle_incidents(
                     bot,
