@@ -1,5 +1,7 @@
 import asyncio
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from server_access_bot.disk_monitoring import (
     DiskAlert,
@@ -10,10 +12,11 @@ from server_access_bot.disk_monitoring import (
     DiskHostStatus,
     DiskMonitor,
     DiskScanner,
-    deliver_disk_alerts,
+    clean_critical_roots,
     deliver_disk_cleanup_requests,
-    format_disk_alert,
+    format_disk_dashboard,
     format_disk_status,
+    update_disk_dashboards,
 )
 from server_access_bot.domain import (
     Application,
@@ -192,119 +195,7 @@ def test_disk_monitor_alerts_on_warning_and_escalates_to_critical(tmp_path) -> N
     assert critical[0].level == "critical"
 
 
-def test_disk_alert_is_sent_to_admin_with_growth_top_and_cleanup(tmp_path) -> None:
-    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
-    gib = 1024**3
-    alert = DiskAlert(
-        level="critical",
-        sample=DiskUsageSample(
-            host="brain_lab",
-            filesystem_key="dev:42",
-            paths=("/", "/home"),
-            total_bytes=1000 * gib,
-            used_bytes=900 * gib,
-            available_bytes=100 * gib,
-            total_inodes=1000,
-            free_inodes=200,
-            sampled_at=100,
-        ),
-        growth_since_previous_bytes=12 * gib,
-        growth_since_day_bytes=85 * gib,
-        day_baseline_at=100 - 86400,
-    )
-
-    class FakeScanner:
-        def top_home(self, host):
-            assert host == "brain_lab"
-            return (
-                DiskDirectoryUsage("/home/alice", 400 * gib),
-                DiskDirectoryUsage("/home/bob", 250 * gib),
-            )
-
-        def cleanup_root(self, host):
-            assert host == "brain_lab"
-            return DiskCleanupResult(
-                before_available_bytes=10 * gib,
-                after_available_bytes=18 * gib,
-                actions=(DiskCleanupAction("Системные журналы", 8 * gib),),
-            )
-
-    class FakeBot:
-        def __init__(self):
-            self.messages = []
-
-        async def send_message(self, chat_id, text, **kwargs):
-            self.messages.append((chat_id, text, kwargs))
-
-    bot = FakeBot()
-    delivered = asyncio.run(
-        deliver_disk_alerts(
-            bot,
-            storage,
-            FakeScanner(),
-            (alert,),
-            admin_user_ids=frozenset({999}),
-        )
-    )
-
-    assert delivered == ("brain_lab",)
-    assert bot.messages[0][0] == 999
-    assert "message_thread_id" not in bot.messages[0][2]
-    text = bot.messages[0][1]
-    assert "Новый сервер (BrainLab)" in text
-    assert "/ и /home" in text
-    assert "Свободно: <b>100.0 GB</b>" in text
-    assert "С прошлого замера: +12.0 GB" in text
-    assert "За 24 часа: +85.0 GB" in text
-    assert "<code>/home/alice</code> · 400.0 GB" in text
-    assert "До очистки: 10.0 GB" in text
-    assert "После очистки: <b>18.0 GB</b>" in text
-    assert "Системные журналы: −8.0 GB" in text
-
-
-def test_warning_disk_alert_is_not_sent_to_admin(tmp_path) -> None:
-    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
-    gib = 1024**3
-    alert = DiskAlert(
-        level="warning",
-        sample=DiskUsageSample(
-            "brain_lab", "dev:42", ("/home",), 1000 * gib, 850 * gib,
-            150 * gib, 1000, 900, 100,
-        ),
-        growth_since_previous_bytes=0,
-        growth_since_day_bytes=0,
-        day_baseline_at=0,
-    )
-
-    class FakeScanner:
-        def top_home(self, _host):
-            return ()
-
-        def cleanup_root(self, _host):
-            return None
-
-    class FakeBot:
-        messages = []
-
-        async def send_message(self, *args, **kwargs):
-            self.messages.append((args, kwargs))
-
-    bot = FakeBot()
-    delivered = asyncio.run(
-        deliver_disk_alerts(
-            bot,
-            storage,
-            FakeScanner(),
-            (alert,),
-            admin_user_ids=frozenset({999}),
-        )
-    )
-
-    assert delivered == ()
-    assert bot.messages == []
-
-
-def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
+def test_large_home_users_are_notified_and_unknown_owners_are_skipped(
     tmp_path,
 ) -> None:
     storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
@@ -364,32 +255,17 @@ def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
         async def send_message(self, chat_id, text, **kwargs):
             self.messages.append((chat_id, text, kwargs))
 
-    def registry_lookup(username):
-        assert username == "bob"
-        return RegistryMatch(
-            telegram_username="bob_tg",
-            full_name="Bob Example",
-            server_username="bob",
-            access_term="бессрочно",
-            recommender="Andrey Example",
-            activity="Research",
-            servers=("brain_lab",),
-            source_row_count=1,
-        )
-
     bot = FakeBot()
     delivered = asyncio.run(
         deliver_disk_cleanup_requests(
             bot,
             storage,
             FakeScanner(),
-            admin_user_ids=frozenset({999}),
             now=200,
-            registry_lookup=registry_lookup,
         )
     )
 
-    assert delivered == (("brain_lab", "alice"), ("brain_lab", "bob"))
+    assert delivered == (("brain_lab", "alice"),)
     user_message = next(item for item in bot.messages if item[0] == 101)
     assert "700.0 GB" in user_message[1]
     assert "осталось 4.0%" in user_message[1]
@@ -398,10 +274,7 @@ def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
         user_message[2]["reply_markup"].inline_keyboard[0][0].callback_data
         .startswith("disk:cleaned:")
     )
-    admin_message = next(item for item in bot.messages if item[0] == 999)
-    assert "Telegram: @bob_tg" in admin_message[1]
-    assert "Готовое сообщение" in admin_message[1]
-    assert "/home/bob" in admin_message[1]
+    assert [item[0] for item in bot.messages] == [101]
     assert all("small" not in item[1] for item in bot.messages)
 
     bot.messages.clear()
@@ -411,9 +284,7 @@ def test_large_home_users_are_notified_or_sent_to_admin_for_forwarding(
                 bot,
                 storage,
                 FakeScanner(),
-                admin_user_ids=frozenset({999}),
                 now=200 + 86399,
-                registry_lookup=registry_lookup,
             )
         )
         == ()
@@ -464,12 +335,7 @@ def test_warning_home_pressure_notifies_linked_owner_but_not_admin(tmp_path) -> 
             bot,
             storage,
             FakeScanner(),
-            admin_user_ids=frozenset({999}),
             now=200,
-            registry_lookup=lambda _username: RegistryMatch(
-                "bob_tg", "Bob Example", "bob", "бессрочно",
-                "Andrey Example", "Research", ("brain_lab",), 1,
-            ),
         )
     )
 
@@ -518,7 +384,6 @@ def test_vv_data_pressure_notifies_owner_from_data_users(tmp_path) -> None:
             bot,
             storage,
             FakeScanner(),
-            admin_user_ids=frozenset({999}),
             now=200,
         )
     )
@@ -670,7 +535,6 @@ def test_failed_disk_cleanup_delivery_is_retried_without_daily_wait(tmp_path) ->
                 bot,
                 storage,
                 FakeScanner(),
-                admin_user_ids=frozenset(),
                 now=now,
             )
         ) == ()
@@ -722,7 +586,6 @@ def test_moving_to_sixth_place_without_freeing_space_is_not_success(tmp_path) ->
             bot,
             storage,
             FakeScanner(),
-            admin_user_ids=frozenset(),
             now=200,
         )
     )
@@ -813,16 +676,146 @@ def test_disk_status_lists_free_space_and_unreachable_servers() -> None:
     assert "Сервер недоступен" in text
 
 
-def test_vv_disk_alert_labels_data_users_top() -> None:
+
+
+def test_critical_root_is_cleaned_without_messages() -> None:
     gib = 1024**3
-    sample = DiskUsageSample(
-        "vv_h200", "dev:84", ("/data",), 10_000 * gib, 9_500 * gib,
-        500 * gib, 1000, 900, 100,
-    )
-    text = format_disk_alert(
-        (DiskAlert("critical", sample, None, None, None),),
-        (DiskDirectoryUsage("/data/users/alice", 700 * gib),),
+
+    def alert(host, level, paths):
+        return DiskAlert(
+            level,
+            DiskUsageSample(host, "dev:1", paths, 100 * gib, 97 * gib, 3 * gib, 10, 9, 1),
+            None,
+            None,
+            None,
+        )
+
+    class FakeScanner:
+        def __init__(self):
+            self.cleaned = []
+
+        def cleanup_root(self, host):
+            self.cleaned.append(host)
+            return DiskCleanupResult(3 * gib, 9 * gib, ())
+
+    scanner = FakeScanner()
+    asyncio.run(
+        clean_critical_roots(
+            scanner,
+            (
+                alert("brain_lab", "critical", ("/",)),
+                alert("vv_h200", "critical", ("/data",)),
+                alert("shkodnik_opt", "warning", ("/",)),
+            ),
+        )
     )
 
-    assert "Самые большие каталоги в /data/users" in text
-    assert "/data/users/alice" in text
+    assert scanner.cleaned == ["brain_lab"]
+
+
+def _dashboard_fixture(tmp_path):
+    gib = 1024**3
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+
+    class FakeScanner:
+        hosts = ("shkodnik_opt", "brain_lab", "vv_h200")
+
+        def __init__(self):
+            self.top_calls = []
+
+        def scan(self):
+            return (
+                DiskHostStatus(
+                    "shkodnik_opt",
+                    True,
+                    (
+                        DiskFilesystemStatus("dev:1", ("/",), 133 * gib, 114 * gib, 19 * gib, 10, 9),
+                        DiskFilesystemStatus("zfs:tank/home", ("/home",), 3600 * gib, 3400 * gib, 200 * gib, 10, 9),
+                    ),
+                ),
+                DiskHostStatus(
+                    "brain_lab",
+                    True,
+                    (DiskFilesystemStatus("dev:2", ("/", "/home"), 1000 * gib, 500 * gib, 500 * gib, 10, 9),),
+                ),
+                DiskHostStatus("vv_h200", False, ()),
+            )
+
+        def top_home(self, host):
+            self.top_calls.append(host)
+            return (
+                DiskDirectoryUsage("/home/alice", 900 * gib),
+                DiskDirectoryUsage("/home/bob", 500 * gib),
+            )
+
+    scanner = FakeScanner()
+    monitor = DiskMonitor(storage, scanner)
+    monitor.check(now=1_000)
+    return storage, scanner, monitor
+
+
+def test_disk_dashboard_summarizes_every_server(tmp_path) -> None:
+    _, _, monitor = _dashboard_fixture(tmp_path)
+
+    text = format_disk_dashboard(
+        monitor,
+        {"shkodnik_opt": (DiskDirectoryUsage("/home/alice", 900 * 1024**3),)},
+        {},
+        updated_at=datetime(2026, 10, 6, 15, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert "💾 <b>Диски серверов</b>" in text
+    assert "06.10, 18:00 МСК" in text
+    assert "🟡 <b>Старый сервер (MIPT)</b>" in text
+    assert "<code>/home · 94% · свободно 200.0 GB</code> 🟡" in text
+    assert "Больше всех: alice 900.0 GB" in text
+    assert "🟢 <b>Новый сервер (BrainLab)</b>" in text
+    assert "⚪ <b>H200</b>" in text
+
+
+def test_disk_dashboard_is_pinned_once_then_edited_in_place(tmp_path) -> None:
+    storage, scanner, monitor = _dashboard_fixture(tmp_path)
+
+    class FakeBot:
+        def __init__(self):
+            self.sent, self.edited, self.pinned = [], [], []
+            self.edit_error = None
+
+        async def send_message(self, chat_id, text, **kwargs):
+            self.sent.append((chat_id, kwargs))
+            return type("Message", (), {"message_id": 40 + len(self.sent)})()
+
+        async def edit_message_text(self, *, text, chat_id, message_id):
+            if self.edit_error:
+                raise RuntimeError(self.edit_error)
+            self.edited.append((chat_id, message_id))
+
+        async def pin_chat_message(self, chat_id, message_id, **kwargs):
+            self.pinned.append((chat_id, message_id, kwargs))
+
+    bot = FakeBot()
+    def run():
+        asyncio.run(
+            update_disk_dashboards(
+                bot, monitor, scanner, admin_user_ids=frozenset({7}), now=1_000
+            )
+        )
+
+    run()
+    run()
+    bot.edit_error = "Bad Request: message is not modified"
+    run()
+    bot.edit_error = "Bad Request: message to edit not found"
+    run()
+
+    assert bot.sent == [
+        (7, {"disable_notification": True}),
+        (7, {"disable_notification": True}),
+    ]
+    assert bot.pinned == [
+        (7, 41, {"disable_notification": True}),
+        (7, 42, {"disable_notification": True}),
+    ]
+    assert bot.edited == [(7, 41)]
+    assert storage.dashboard_message_id(7, "disk") == 42
+    assert "brain_lab" not in scanner.top_calls

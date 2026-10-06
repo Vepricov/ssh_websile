@@ -9,15 +9,15 @@ import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from .domain import DiskUsageSample, RegistryMatch
-from .monitoring import PUBLIC_SERVER_NAMES, SERVER_LOCATIONS
+from .domain import DiskCleanupRequest, DiskUsageSample
+from .monitoring import MOSCOW_TIMEZONE, PUBLIC_SERVER_NAMES, SERVER_LOCATIONS
 from .storage import Storage
 
 Runner = Callable[[str, tuple[str, ...]], tuple[int, str]]
-RegistryLookup = Callable[[str], RegistryMatch | None]
 HELPER = "/usr/local/sbin/hermes-disk-report"
 LOGGER = logging.getLogger(__name__)
 HOME_NOTIFY_MIN_BYTES = 400 * 1024**3
@@ -25,7 +25,7 @@ HOME_NOTIFY_MAX_USERS = 5
 HOME_NOTIFY_COOLDOWN_SECONDS = 86400
 HOME_CLEANED_MIN_BYTES = 50 * 1024**3
 HOME_NOTIFY_FREE_PERCENT = 15
-HOME_ADMIN_FREE_PERCENT = 5
+DASHBOARD_KIND = "disk"
 MONITORED_FILESYSTEM_PATHS = frozenset({"/", "/home", "/data"})
 DEFAULT_USER_STORAGE = ("/home", "/home")
 USER_STORAGE_BY_HOST = {"vv_h200": ("/data", "/data/users")}
@@ -288,10 +288,30 @@ class DiskMonitor:
         self.warning_free_percent = warning_free_percent
         self.critical_free_percent = critical_free_percent
         self.notification_cooldown_seconds = notification_cooldown_seconds
+        self.last_statuses: tuple[DiskHostStatus, ...] = ()
+
+    def level(self, filesystem: DiskFilesystemStatus) -> str:
+        free_percent = (
+            100 * filesystem.available_bytes / filesystem.total_bytes
+            if filesystem.total_bytes
+            else 0
+        )
+        inode_free_percent = (
+            100 * filesystem.free_inodes / filesystem.total_inodes
+            if filesystem.total_inodes
+            else 100
+        )
+        minimum_free_percent = min(free_percent, inode_free_percent)
+        if minimum_free_percent <= self.critical_free_percent:
+            return "critical"
+        if minimum_free_percent <= self.warning_free_percent:
+            return "warning"
+        return "normal"
 
     def check(self, *, now: int) -> tuple[DiskAlert, ...]:
         alerts = []
-        for host_status in self.scanner.scan():
+        self.last_statuses = self.scanner.scan()
+        for host_status in self.last_statuses:
             if not host_status.reachable:
                 continue
             for filesystem in host_status.filesystems:
@@ -358,100 +378,6 @@ def _format_bytes(value: int, *, signed: bool = False) -> str:
     return f"{sign}{value / 1024**3:.1f} GB"
 
 
-def format_disk_alert(
-    alerts: Sequence[DiskAlert],
-    top_home: Sequence[DiskDirectoryUsage] = (),
-    cleanup: DiskCleanupResult | None = None,
-) -> str:
-    host = alerts[0].sample.host
-    server_name = html.escape(PUBLIC_SERVER_NAMES.get(host, host))
-    critical = any(alert.level == "critical" for alert in alerts)
-    sections = [
-        ("🆘" if critical else "⚠️")
-        + f" <b>{'Критически мало' if critical else 'Мало'} места</b>",
-        f"<b>{server_name}</b>",
-    ]
-    for alert in alerts:
-        sample = alert.sample
-        paths = " и ".join(sample.paths)
-        used_percent = (
-            100 * sample.used_bytes / sample.total_bytes if sample.total_bytes else 100
-        )
-        inode_free_percent = (
-            100 * sample.free_inodes / sample.total_inodes
-            if sample.total_inodes
-            else 100
-        )
-        lines = [
-            f"<b>{html.escape(paths)}</b>",
-            f"Занято: {used_percent:.1f}% из {_format_bytes(sample.total_bytes)}",
-            f"Свободно: <b>{_format_bytes(sample.available_bytes)}</b>",
-            f"Свободные inode: {inode_free_percent:.1f}%",
-        ]
-        if alert.growth_since_previous_bytes is not None:
-            lines.append(
-                "С прошлого замера: "
-                + _format_bytes(alert.growth_since_previous_bytes, signed=True)
-            )
-        if alert.growth_since_day_bytes is not None:
-            label = (
-                "За 24 часа"
-                if alert.day_baseline_at is not None
-                and sample.sampled_at - alert.day_baseline_at >= 20 * 3600
-                else "С начала наблюдения"
-            )
-            lines.append(
-                f"{label}: {_format_bytes(alert.growth_since_day_bytes, signed=True)}"
-            )
-        sections.append("\n".join(lines))
-    if top_home:
-        user_root = _user_storage(host)[1]
-        top_lines = [
-            f"<b>Самые большие каталоги в {html.escape(user_root)}</b>"
-        ]
-        top_lines.extend(
-            f"<code>{html.escape(item.path)}</code> · {_format_bytes(item.size_bytes)}"
-            for item in top_home
-        )
-        sections.append("\n".join(top_lines))
-    elif any(_user_storage(host)[0] in alert.sample.paths for alert in alerts):
-        user_root = html.escape(_user_storage(host)[1])
-        sections.append(
-            f"<b>Top {user_root}</b>\n"
-            "Быстрая quota-статистика пока недоступна или домашние каталоги пусты."
-        )
-    if cleanup is not None:
-        cleanup_lines = [
-            "<b>Безопасная очистка системного раздела</b>",
-            f"До очистки: {_format_bytes(cleanup.before_available_bytes)} свободно",
-        ]
-        cleanup_lines.extend(
-            f"{html.escape(action.name)}: −{_format_bytes(action.freed_bytes)}"
-            for action in cleanup.actions
-            if action.freed_bytes > 0
-        )
-        status_names = {
-            "error": "ошибка",
-            "timeout": "превышено время ожидания",
-            "busy": "другая очистка уже выполняется",
-        }
-        cleanup_lines.extend(
-            f"{html.escape(action.name)}: {status_names[action.status]}"
-            for action in cleanup.actions
-            if action.status != "ok"
-        )
-        cleanup_lines.append(
-            f"После очистки: <b>{_format_bytes(cleanup.after_available_bytes)}</b> "
-            "свободно"
-        )
-        cleanup_lines.append(
-            "Автоматически больше ничего не удаляю. Если места всё ещё мало, "
-            "нужна ручная проверка."
-        )
-        sections.append("\n".join(cleanup_lines))
-    return "\n\n".join(sections)
-
-
 def format_disk_status(statuses: Sequence[DiskHostStatus]) -> str:
     sections = ["💾 <b>Свободное место на серверах</b>"]
     for status in statuses:
@@ -473,42 +399,6 @@ def format_disk_status(statuses: Sequence[DiskHostStatus]) -> str:
             )
         sections.append("\n".join(lines))
     return "\n\n".join(sections)
-
-
-async def deliver_disk_alerts(
-    bot: object,
-    storage: Storage,
-    scanner: DiskScanner,
-    alerts: Sequence[DiskAlert],
-    *,
-    admin_user_ids: frozenset[int],
-) -> tuple[str, ...]:
-    grouped: dict[str, list[DiskAlert]] = {}
-    for alert in alerts:
-        grouped.setdefault(alert.sample.host, []).append(alert)
-    delivered = []
-    for host, host_alerts in grouped.items():
-        if not any(alert.level == "critical" for alert in host_alerts):
-            continue
-        top_home = await asyncio.to_thread(scanner.top_home, host)
-        cleanup = None
-        if any("/" in alert.sample.paths for alert in host_alerts):
-            cleanup = await asyncio.to_thread(scanner.cleanup_root, host)
-        text = format_disk_alert(host_alerts, top_home, cleanup)
-        host_delivered = False
-        for admin_user_id in admin_user_ids:
-            try:
-                await bot.send_message(admin_user_id, text)
-                host_delivered = True
-            except Exception:
-                LOGGER.exception(
-                    "Could not send disk alert for %s to admin %s",
-                    host,
-                    admin_user_id,
-                )
-        if host_delivered:
-            delivered.append(host)
-    return tuple(delivered)
 
 
 def _home_cleanup_text(
@@ -538,40 +428,25 @@ def _home_cleanup_text(
     )
 
 
-def _admin_home_cleanup_text(
-    host: str,
-    username: str,
-    size_bytes: int,
-    rank: int,
-    sample: DiskUsageSample,
-    *,
-    telegram_username: str | None,
-    delivery_failed: bool,
-) -> str:
-    safe_username = html.escape(username)
-    lines = [
-        "⚠️ <b>Не удалось уведомить владельца каталога</b>",
-        f"Сервер: <b>{html.escape(PUBLIC_SERVER_NAMES.get(host, host))}</b>",
-        f"Unix username: <code>{safe_username}</code>",
-    ]
-    if telegram_username:
-        lines.append(f"Telegram: @{html.escape(telegram_username.lstrip('@'))}")
-    lines.extend(
-        [
-            "Причина: "
-            + (
-                "пользователь не принимает сообщения от бота."
-                if delivery_failed
-                else "Unix username ещё не связан с Telegram ID."
-            ),
-            "",
-            "<b>Готовое сообщение для пересылки</b>",
-            "<blockquote>"
-            + _home_cleanup_text(host, username, size_bytes, rank, sample)
-            + "</blockquote>",
-        ]
+async def clean_critical_roots(
+    scanner: DiskScanner, alerts: Sequence[DiskAlert]
+) -> None:
+    hosts = sorted(
+        {
+            alert.sample.host
+            for alert in alerts
+            if alert.level == "critical" and "/" in alert.sample.paths
+        }
     )
-    return "\n".join(lines)
+    for host in hosts:
+        result = await asyncio.to_thread(scanner.cleanup_root, host)
+        if result is not None:
+            LOGGER.info(
+                "Root cleanup on %s: free %s -> %s",
+                host,
+                result.before_available_bytes,
+                result.after_available_bytes,
+            )
 
 
 async def deliver_disk_cleanup_requests(
@@ -579,9 +454,7 @@ async def deliver_disk_cleanup_requests(
     storage: Storage,
     scanner: DiskScanner,
     *,
-    admin_user_ids: frozenset[int],
     now: int,
-    registry_lookup: RegistryLookup | None = None,
 ) -> tuple[tuple[str, str], ...]:
     delivered: list[tuple[str, str]] = []
     for host in scanner.hosts:
@@ -642,7 +515,7 @@ async def deliver_disk_cleanup_requests(
                 host,
                 username,
             )
-            if telegram_user_id is None and free_percent > HOME_ADMIN_FREE_PERCENT:
+            if telegram_user_id is None:
                 continue
             request = await asyncio.to_thread(
                 storage.claim_disk_cleanup_request,
@@ -660,7 +533,6 @@ async def deliver_disk_cleanup_requests(
             user_text = _home_cleanup_text(
                 host, username, item.size_bytes, rank, sample
             )
-            delivery_failed = False
             notification_delivered = False
             if telegram_user_id is not None:
                 try:
@@ -683,48 +555,11 @@ async def deliver_disk_cleanup_requests(
                     )
                     notification_delivered = True
                 except Exception:
-                    delivery_failed = True
                     LOGGER.exception(
                         "Could not send disk cleanup request to Telegram user %s",
                         telegram_user_id,
                     )
 
-            telegram_username = None
-            if (
-                not notification_delivered
-                and free_percent <= HOME_ADMIN_FREE_PERCENT
-                and registry_lookup is not None
-            ):
-                try:
-                    registry = await asyncio.to_thread(registry_lookup, username)
-                    if registry is not None and host in registry.servers:
-                        telegram_username = registry.telegram_username
-                except Exception:
-                    LOGGER.exception(
-                        "Could not resolve disk owner %s through registry", username
-                    )
-            if (
-                not notification_delivered
-                and free_percent <= HOME_ADMIN_FREE_PERCENT
-            ):
-                admin_text = _admin_home_cleanup_text(
-                    host,
-                    username,
-                    item.size_bytes,
-                    rank,
-                    sample,
-                    telegram_username=telegram_username,
-                    delivery_failed=delivery_failed,
-                )
-                for admin_user_id in admin_user_ids:
-                    try:
-                        await bot.send_message(admin_user_id, admin_text)
-                        notification_delivered = True
-                    except Exception:
-                        LOGGER.exception(
-                            "Could not send disk owner alert to admin %s",
-                            admin_user_id,
-                        )
             if notification_delivered:
                 await asyncio.to_thread(
                     storage.mark_disk_cleanup_notified, request.token, now=now
@@ -737,6 +572,130 @@ async def deliver_disk_cleanup_requests(
     return tuple(delivered)
 
 
+LEVEL_ICONS = {"normal": "🟢", "warning": "🟡", "critical": "🔴"}
+DASHBOARD_TOP_USERS = 3
+
+
+def format_disk_dashboard(
+    monitor: "DiskMonitor",
+    top_by_host: dict[str, tuple[DiskDirectoryUsage, ...]],
+    requests_by_host: dict[str, tuple[DiskCleanupRequest, ...]],
+    *,
+    updated_at: datetime,
+) -> str:
+    sections = [
+        "💾 <b>Диски серверов</b>",
+        (
+            f"Обновлено {updated_at.astimezone(MOSCOW_TIMEZONE):%d.%m, %H:%M} МСК. "
+            "Сообщение обновляется само, уведомлений о дисках больше не будет."
+        ),
+    ]
+    for status in monitor.last_statuses:
+        server_name = html.escape(PUBLIC_SERVER_NAMES.get(status.host, status.host))
+        if not status.reachable:
+            sections.append(f"⚪ <b>{server_name}</b>\nНет связи.")
+            continue
+        levels = [monitor.level(filesystem) for filesystem in status.filesystems]
+        worst = max(levels, key=["normal", "warning", "critical"].index, default="normal")
+        lines = [f"{LEVEL_ICONS[worst]} <b>{server_name}</b>"]
+        for filesystem, level in zip(status.filesystems, levels):
+            used_percent = (
+                100 * filesystem.used_bytes / filesystem.total_bytes
+                if filesystem.total_bytes
+                else 100
+            )
+            mark = "" if level == "normal" else f" {LEVEL_ICONS[level]}"
+            lines.append(
+                f"<code>{html.escape(' и '.join(filesystem.paths))} · "
+                f"{used_percent:.0f}% · свободно "
+                f"{_format_bytes(filesystem.available_bytes)}</code>{mark}"
+            )
+        _, user_root = _user_storage(status.host)
+        top = top_by_host.get(status.host, ())[:DASHBOARD_TOP_USERS]
+        if top:
+            lines.append(
+                "Больше всех: "
+                + ", ".join(
+                    f"{html.escape(item.path.removeprefix(f'{user_root}/'))} "
+                    f"{_format_bytes(item.size_bytes)}"
+                    for item in top
+                )
+            )
+        requests = requests_by_host.get(status.host, ())
+        if requests:
+            lines.append(
+                "Просили почистить: "
+                + ", ".join(
+                    f"{html.escape(request.server_username)}"
+                    + (" (говорит, почистил)" if request.status == "acknowledged" else "")
+                    for request in requests
+                )
+            )
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections)
+
+
+async def update_disk_dashboards(
+    bot: object,
+    monitor: "DiskMonitor",
+    scanner: DiskScanner,
+    *,
+    admin_user_ids: frozenset[int],
+    now: int,
+) -> None:
+    top_by_host = {}
+    requests_by_host = {}
+    for status in monitor.last_statuses:
+        if not status.reachable:
+            continue
+        if any(monitor.level(item) != "normal" for item in status.filesystems):
+            top_by_host[status.host] = await asyncio.to_thread(
+                scanner.top_home, status.host
+            )
+        requests_by_host[status.host] = await asyncio.to_thread(
+            monitor.storage.disk_cleanup_requests_for_host, status.host
+        )
+    text = format_disk_dashboard(
+        monitor,
+        top_by_host,
+        requests_by_host,
+        updated_at=datetime.fromtimestamp(now, MOSCOW_TIMEZONE),
+    )
+    for admin_user_id in sorted(admin_user_ids):
+        message_id = await asyncio.to_thread(
+            monitor.storage.dashboard_message_id, admin_user_id, DASHBOARD_KIND
+        )
+        if message_id is not None:
+            try:
+                await bot.edit_message_text(
+                    text=text, chat_id=admin_user_id, message_id=message_id
+                )
+                continue
+            except Exception as error:
+                if "message is not modified" in str(error):
+                    continue
+                LOGGER.warning(
+                    "Disk dashboard for %s could not be edited; sending anew",
+                    admin_user_id,
+                    exc_info=True,
+                )
+        try:
+            message = await bot.send_message(
+                admin_user_id, text, disable_notification=True
+            )
+            await asyncio.to_thread(
+                monitor.storage.set_dashboard_message_id,
+                admin_user_id,
+                DASHBOARD_KIND,
+                message.message_id,
+            )
+            await bot.pin_chat_message(
+                admin_user_id, message.message_id, disable_notification=True
+            )
+        except Exception:
+            LOGGER.exception("Could not publish disk dashboard to %s", admin_user_id)
+
+
 async def run_disk_monitor(
     bot: object,
     monitor: DiskMonitor,
@@ -744,27 +703,18 @@ async def run_disk_monitor(
     *,
     interval_seconds: int,
     admin_user_ids: frozenset[int],
-    registry_lookup: RegistryLookup | None = None,
 ) -> None:
     while True:
         started = time.monotonic()
         try:
-            alerts = await asyncio.to_thread(monitor.check, now=int(time.time()))
-            if alerts:
-                await deliver_disk_alerts(
-                    bot,
-                    monitor.storage,
-                    scanner,
-                    alerts,
-                    admin_user_ids=admin_user_ids,
-                )
+            now = int(time.time())
+            alerts = await asyncio.to_thread(monitor.check, now=now)
+            await clean_critical_roots(scanner, alerts)
             await deliver_disk_cleanup_requests(
-                bot,
-                monitor.storage,
-                scanner,
-                admin_user_ids=admin_user_ids,
-                now=int(time.time()),
-                registry_lookup=registry_lookup,
+                bot, monitor.storage, scanner, now=now
+            )
+            await update_disk_dashboards(
+                bot, monitor, scanner, admin_user_ids=admin_user_ids, now=now
             )
         except Exception:
             LOGGER.exception("Disk monitor iteration failed")
