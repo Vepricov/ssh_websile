@@ -49,26 +49,34 @@ DRIVER_HUNG_EXIT_CODE = 75
 DRIVER_HUNG_MARKER = "DRIVER_HUNG"
 DRIVER_ALERT_KEY = "nvidia-driver"
 DRIVER_ALERT_COOLDOWN_SECONDS = 6 * 3600
+# A busy server can make one nvidia-smi slow; a wedged driver stays wedged.
+DRIVER_HANG_CONFIRM_SCANS = 3
 
 
 def _guarded_nvidia_smi(arguments: str, post: str = 'cat "$out"') -> tuple[str, ...]:
     """Run nvidia-smi without ever adding to a pile of hung calls.
 
     A wedged NVIDIA driver leaves every nvidia-smi in uninterruptible sleep, so
-    a plain call never returns and is never reaped. If one has been stuck for a
-    minute, report the hang instead of starting another; otherwise wait a
-    bounded time and report a hang on timeout. Exit code 75 means "hung".
+    a plain call never returns and is never reaped. If an nvidia-smi older than
+    two minutes is in D-state on every one of five samples, report it instead of
+    starting another; otherwise wait up to 30 s. Exit code 75 means "suspected
+    hang": a single one can be a merely slow call, so callers confirm it over
+    several scans.
     """
     script = (
         "hung() { echo \"" + DRIVER_HUNG_MARKER + " $1\"; "
         "dmesg -T 2>/dev/null | grep -E 'NVRM|Xid' | tail -n 3; "
         "exit " + str(DRIVER_HUNG_EXIT_CODE) + "; }; "
-        "stuck=$(ps -eo stat=,etimes=,comm= | "
-        "awk '$1 ~ /^D/ && $2 >= 60 && $3 == \"nvidia-smi\"' | wc -l); "
+        "cand=$(ps -eo pid=,stat=,etimes=,comm= | "
+        "awk '$2 ~ /^D/ && $3 >= 120 && $4 == \"nvidia-smi\" {print $1}'); "
+        "if [ -n \"$cand\" ]; then for i in 1 2 3 4 5; do sleep 0.4; still=; "
+        "for c in $cand; do case $(ps -o stat= -p \"$c\" 2>/dev/null) in "
+        "D*) still=\"$still $c\";; esac; done; cand=$still; done; fi; "
+        "stuck=$(echo $cand | wc -w); "
         "[ \"$stuck\" -gt 0 ] && hung \"stuck=$stuck\"; "
         "out=$(mktemp) || exit 1; "
         "nvidia-smi " + arguments + " >\"$out\" 2>/dev/null & p=$!; "
-        "i=0; while kill -0 \"$p\" 2>/dev/null && [ \"$i\" -lt 30 ]; "
+        "i=0; while kill -0 \"$p\" 2>/dev/null && [ \"$i\" -lt 60 ]; "
         "do sleep 0.5; i=$((i+1)); done; "
         "if kill -0 \"$p\" 2>/dev/null; then kill -9 \"$p\" 2>/dev/null; "
         "rm -f \"$out\"; hung timeout; fi; "
@@ -197,7 +205,7 @@ class GpuFleetScanner:
             ],
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=45,
             check=False,
             env={
                 "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -448,9 +456,10 @@ def format_gpu_status(
             continue
         if status.driver_hung:
             sections.append(
-                f"🔴 <b>{server_name}</b>\n"
-                "Драйвер GPU завис: nvidia-smi не отвечает, задачи на GPU стоят. "
-                "Нужна перезагрузка сервера."
+                f"🟡 <b>{server_name}</b>\n"
+                "nvidia-smi не ответил вовремя: сервер перегружен или завис "
+                "драйвер GPU. Если зависание подтвердится, бот пришлёт отдельное "
+                "сообщение."
             )
             continue
         if not status.devices:
@@ -508,11 +517,17 @@ class GpuIdleMonitor:
         self.scanner = scanner
         self.policy = policy
         self.last_scan: GpuScan | None = None
+        self.hang_streak: dict[str, int] = {}
 
     def check(self, *, now: int | None = None) -> list[GpuIdleIncident]:
         checked_at = int(time.time()) if now is None else now
         scan = self.scanner.scan()
         self.last_scan = scan
+        hung_hosts = {host for host, _ in scan.driver_hung}
+        for host in hung_hosts:
+            self.hang_streak[host] = self.hang_streak.get(host, 0) + 1
+        for host in scan.reachable_hosts:
+            self.hang_streak.pop(host, None)
         return self.storage.update_gpu_idle_observations(
             scan.candidates,
             reachable_hosts=scan.reachable_hosts,
@@ -524,6 +539,16 @@ class GpuIdleMonitor:
                 self.policy.notification_cooldown_seconds
             ),
         )
+
+
+def confirmed_driver_hangs(monitor: "GpuIdleMonitor") -> tuple[tuple[str, str], ...]:
+    if monitor.last_scan is None:
+        return ()
+    return tuple(
+        (host, detail)
+        for host, detail in monitor.last_scan.driver_hung
+        if monitor.hang_streak.get(host, 0) >= DRIVER_HANG_CONFIRM_SCANS
+    )
 
 
 def format_user_idle_notification(
@@ -760,13 +785,14 @@ def format_driver_recovered_alert(host: str) -> str:
 async def deliver_driver_hang_alerts(
     bot: object,
     storage: Storage,
-    scan: GpuScan,
+    hung: Sequence[tuple[str, str]],
+    reachable_hosts: Sequence[str],
     *,
     admin_user_ids: frozenset[int],
     now: int,
 ) -> None:
     messages = []
-    for host, detail in scan.driver_hung:
+    for host, detail in hung:
         if await asyncio.to_thread(
             storage.claim_disk_alert,
             host,
@@ -776,7 +802,7 @@ async def deliver_driver_hang_alerts(
             cooldown_seconds=DRIVER_ALERT_COOLDOWN_SECONDS,
         ):
             messages.append(format_driver_hang_alert(host, detail))
-    for host in scan.reachable_hosts:
+    for host in reachable_hosts:
         previous = await asyncio.to_thread(
             storage.disk_alert_level, host, DRIVER_ALERT_KEY
         )
@@ -816,7 +842,8 @@ async def run_gpu_idle_monitor(
                 await deliver_driver_hang_alerts(
                     bot,
                     monitor.storage,
-                    monitor.last_scan,
+                    confirmed_driver_hangs(monitor),
+                    monitor.last_scan.reachable_hosts,
                     admin_user_ids=admin_user_ids,
                     now=now,
                 )
