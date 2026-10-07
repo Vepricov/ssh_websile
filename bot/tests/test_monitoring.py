@@ -15,8 +15,11 @@ from server_access_bot.monitoring import (
     DRIVER_HUNG_EXIT_CODE,
     PUBLIC_SERVER_NAMES,
     GpuFleetScanner,
+    GpuIdleMonitor,
+    GpuIdlePolicy,
     GpuScan,
     GpuStatusScanner,
+    confirmed_driver_hangs,
     deliver_driver_hang_alerts,
     deliver_gpu_idle_incidents,
     format_gpu_status,
@@ -482,7 +485,8 @@ def test_nvidia_queries_never_start_while_a_call_is_stuck() -> None:
     for command in (GpuFleetScanner.GPU_QUERY, GpuFleetScanner.PROCESS_QUERY):
         script = command[2]
         assert script.index("stuck=") < script.index("nvidia-smi --query")
-        assert "$2 >= 60" in script
+        assert "$3 >= 120" in script
+        assert "for i in 1 2 3 4 5" in script
         assert f"exit {DRIVER_HUNG_EXIT_CODE}" in script
         assert 'kill -9 "$p"' in script
 
@@ -495,7 +499,8 @@ def test_status_shows_hung_driver_not_ssh_failure() -> None:
     text = format_gpu_status(statuses)
 
     assert statuses[0].driver_hung is True
-    assert "Драйвер GPU завис" in text
+    assert "🟡 <b>Старый сервер (MIPT)</b>" in text
+    assert "не ответил вовремя" in text
     assert "недоступен по SSH" not in text
 
 
@@ -510,20 +515,61 @@ def test_driver_hang_alert_is_sent_once_then_recovery(tmp_path) -> None:
             self.sent.append((chat_id, text))
 
     bot = FakeBot()
-    hung = GpuScan(
-        reachable_hosts=("brain_lab",),
-        candidates=(),
-        driver_hung=(("shkodnik_opt", HUNG_OUTPUT.strip()),),
-    )
-    healthy = GpuScan(reachable_hosts=("brain_lab", "shkodnik_opt"), candidates=())
+    hung = (("shkodnik_opt", HUNG_OUTPUT.strip()),)
     admins = frozenset({1})
 
-    asyncio.run(deliver_driver_hang_alerts(bot, storage, hung, admin_user_ids=admins, now=1000))
-    asyncio.run(deliver_driver_hang_alerts(bot, storage, hung, admin_user_ids=admins, now=1300))
-    asyncio.run(deliver_driver_hang_alerts(bot, storage, healthy, admin_user_ids=admins, now=1600))
-    asyncio.run(deliver_driver_hang_alerts(bot, storage, healthy, admin_user_ids=admins, now=1900))
+    def deliver(hung_hosts, reachable, now):
+        asyncio.run(
+            deliver_driver_hang_alerts(
+                bot, storage, hung_hosts, reachable, admin_user_ids=admins, now=now
+            )
+        )
+
+    deliver(hung, ("brain_lab",), 1000)
+    deliver(hung, ("brain_lab",), 1300)
+    deliver((), ("brain_lab", "shkodnik_opt"), 1600)
+    deliver((), ("brain_lab", "shkodnik_opt"), 1900)
 
     assert len(bot.sent) == 2
     assert "драйвер NVIDIA завис" in bot.sent[0][1]
     assert "rmGpuLocksGetOwnedMask" in bot.sent[0][1]
     assert "снова отвечает" in bot.sent[1][1]
+
+
+def test_one_slow_nvidia_smi_is_not_a_confirmed_hang(tmp_path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"x" * 32)
+    results = iter(["hung", "ok", "hung", "hung", "hung"])
+
+    class FakeScanner:
+        def scan(self):
+            if next(results) == "hung":
+                return GpuScan((), (), (("vv_h200", "DRIVER_HUNG timeout"),))
+            return GpuScan(("vv_h200",), ())
+
+    monitor = GpuIdleMonitor(storage, FakeScanner(), GpuIdlePolicy())
+    confirmed = []
+    for now in range(1000, 1500, 100):
+        monitor.check(now=now)
+        confirmed.append(bool(confirmed_driver_hangs(monitor)))
+
+    assert confirmed == [False, False, False, False, True]
+
+
+def test_guard_waits_out_a_slow_but_alive_nvidia_smi(tmp_path) -> None:
+    import os
+    import subprocess
+
+    shim = tmp_path / "nvidia-smi"
+    shim.write_text("#!/bin/sh\nsleep 3\necho 0, GPU-x, A100, 81920, 1, 81919, 0\n")
+    shim.chmod(0o755)
+    result = subprocess.run(
+        ["/bin/sh", "-c", GpuFleetScanner.GPU_QUERY[2]],
+        env={**os.environ, "PATH": f"{tmp_path}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        timeout=40,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "GPU-x" in result.stdout
