@@ -88,7 +88,7 @@ def test_mcp_checkbox_in_server_form_creates_named_request_then_approved_role(tm
         await dispatcher.feed_update(bot, Update(update_id=2, callback_query=callback))
         assert bridge.calls == [(42, "member")]
         assert mcp.get(42)["status"] == "delivered"
-        delivery = next(x for x in telegram.sent if isinstance(x, SendMessage) and "Личный ключ:" in x.text)
+        delivery = next(x for x in telegram.sent if isinstance(x, SendMessage) and "Доступ в базу знания лаборатории выдан" in x.text)
         assert delivery.protect_content and delivery.chat_id == 42
         assert "alice" in delivery.text and "Участник" in delivery.text
     asyncio.run(scenario())
@@ -184,7 +184,7 @@ def test_typed_mcp_application_gets_form_help_without_creating_request(tmp_path)
 
         await dispatcher.feed_update(bot, Update(update_id=1, message=text("/mcp")))
         intro = telegram.sent[-1]
-        assert "Нажмите «Заполнить заявку MCP»" in intro.text
+        assert "Нажмите «Заполнить заявку»" in intro.text
         application = "Alice Smith\nalice\nBob Jones\nУчастник"
         await dispatcher.feed_update(bot, Update(update_id=2, message=text(application)))
         reply = telegram.sent[-1]
