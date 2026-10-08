@@ -23,6 +23,7 @@ from server_access_bot.app import (
     server_dashboard_text,
     server_form_url,
     server_request_menu,
+    split_external_application,
 )
 from server_access_bot.domain import (
     Profile,
@@ -231,7 +232,7 @@ def test_add_server_button_opens_prefilled_server_form() -> None:
 
     button = menu.keyboard[0][0]
     assert button.web_app is not None
-    assert button.web_app.url.endswith("/server-form.html?server=brain_lab&v=access-cleanup-20261001")
+    assert button.web_app.url.endswith("/server-form.html?server=brain_lab&v=2a100-approval-20261008")
 
 
 def test_server_form_url_prefills_username_and_existing_accesses() -> None:
@@ -243,7 +244,7 @@ def test_server_form_url_prefills_username_and_existing_accesses() -> None:
 
     assert url == (
         "https://vepricov.github.io/ssh_websile/server-form.html?"
-        "server=vv_h200&username=alice&existing=shkodnik_opt%2Cbrain_lab%2Cyandex&v=access-cleanup-20261001"
+        "server=vv_h200&username=alice&existing=shkodnik_opt%2Cbrain_lab%2Cyandex&v=2a100-approval-20261008"
     )
 
 
@@ -345,6 +346,31 @@ def test_known_user_can_still_add_managed_server_without_second_approval() -> No
     assert request_requires_admin(application, user_is_known=False)
 
 
+def test_two_a100_always_requires_admin_and_travels_alone() -> None:
+    application = application_from_request(
+        Profile(101, "alice_tg", "Alice Smith", "Bob Jones"),
+        ServerRequest(
+            telegram_user_id=101,
+            telegram_username="alice_tg",
+            server_username="alice",
+            access_term="бессрочно",
+            activity="fine-tuning",
+            servers=("brain_lab", "2_a100_brain", "alibaba_ascend"),
+        ),
+    )
+
+    parts = split_external_application(application)
+
+    assert [part.servers for part in parts] == [
+        ("brain_lab",),
+        ("2_a100_brain",),
+        ("alibaba_ascend",),
+    ]
+    assert not request_requires_admin(parts[0], user_is_known=True)
+    assert request_requires_admin(parts[1], user_is_known=True)
+    assert request_requires_admin(parts[2], user_is_known=True)
+
+
 def test_gpu_process_buttons_are_bound_to_one_action_token() -> None:
     confirmation = gpu_stop_confirmation_keyboard("safe-token")
     force = gpu_force_keyboard("safe-token")
@@ -389,7 +415,7 @@ def test_main_menu_exposes_profile_catalog_info_and_access_actions() -> None:
     access_button = MAIN_MENU.keyboard[1][1]
     assert access_button.web_app is not None
     assert access_button.web_app.url == (
-        "https://vepricov.github.io/ssh_websile/server-form.html?v=access-cleanup-20261001"
+        "https://vepricov.github.io/ssh_websile/server-form.html?v=2a100-approval-20261008"
     )
     # MCP is a separate flow: the button opens /mcp, not the server form.
     assert MAIN_MENU.keyboard[3][0].web_app is None
@@ -404,7 +430,7 @@ def test_main_menu_personalizes_access_form_from_saved_account() -> None:
     access_button = menu.keyboard[1][1]
     assert access_button.web_app is not None
     assert access_button.web_app.url.endswith(
-        "?username=alice&existing=brain_lab%2Cshkodnik_opt&v=access-cleanup-20261001"
+        "?username=alice&existing=brain_lab%2Cshkodnik_opt&v=2a100-approval-20261008"
     )
 
 

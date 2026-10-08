@@ -154,7 +154,7 @@ def server_form_url(
         query["username"] = server_username
     if existing_services:
         query["existing"] = ",".join(dict.fromkeys(existing_services))
-    query["v"] = "access-cleanup-20261001"
+    query["v"] = "2a100-approval-20261008"
     return f"{SERVER_FORM_URL}?{urlencode(query)}"
 
 
@@ -442,6 +442,10 @@ def application_from_request(profile: Profile, request: ServerRequest) -> Applic
     )
 
 
+# Always approved by an admin, even for users already in the registry.
+SEPARATE_APPROVAL_HOSTS = ("2_a100_brain", "alibaba_ascend")
+
+
 def request_requires_admin(
     application: Application,
     *,
@@ -451,19 +455,17 @@ def request_requires_admin(
     return (
         not user_is_known
         or (mlsub_is_missing and "mlsub" in application.servers)
-        or "alibaba_ascend" in application.servers
+        or any(host in application.servers for host in SEPARATE_APPROVAL_HOSTS)
     )
 
 
 def split_external_application(application: Application) -> list[Application]:
-    """Alibaba is approved by hand, so it travels as its own request."""
-    if "alibaba_ascend" not in application.servers or len(application.servers) == 1:
-        return [application]
-    rest = tuple(host for host in application.servers if host != "alibaba_ascend")
-    return [
-        dataclasses.replace(application, servers=rest),
-        dataclasses.replace(application, servers=("alibaba_ascend",)),
-    ]
+    """Each host the admin approves by hand travels as its own request."""
+    separate = [host for host in SEPARATE_APPROVAL_HOSTS if host in application.servers]
+    rest = tuple(host for host in application.servers if host not in separate)
+    parts = [dataclasses.replace(application, servers=rest)] if rest else []
+    parts += [dataclasses.replace(application, servers=(host,)) for host in separate]
+    return parts
 
 
 def application_data(application: Application) -> dict[str, object]:
@@ -1182,7 +1184,11 @@ def build_router(
                         else (
                             "<b>Отдельная заявка на mlsub</b>\n\n"
                             if "mlsub" in application.servers
-                            else "<b>Новая заявка на доступ</b>\n\n"
+                            else (
+                                "<b>Заявка на 2 × A100 (BrainLab)</b>\n\n"
+                                if application.servers == ("2_a100_brain",)
+                                else "<b>Новая заявка на доступ</b>\n\n"
+                            )
                         )
                     )
                     + application_summary(application_data(application)),
