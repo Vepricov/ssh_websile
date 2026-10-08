@@ -13,6 +13,7 @@ class Settings:
     spreadsheet_id: str
     sheet_id: int
     ascend_group_url: str = ""
+    alibaba_requests_open: bool = True
     demo_user_ids: frozenset[int] = frozenset()
     admin_user_ids: frozenset[int] = frozenset()
     mcp_admin_user_ids: frozenset[int] = frozenset()
@@ -63,6 +64,10 @@ class Settings:
             ),
             sheet_id=int(os.environ.get("GOOGLE_SHEET_ID", "1269070972")),
             ascend_group_url=os.environ.get("ASCEND_GROUP_URL", "").strip(),
+            alibaba_requests_open=os.environ.get(
+                "ALIBABA_REQUESTS_OPEN", "true"
+            ).lower()
+            in {"1", "true", "yes", "on"},
             demo_user_ids=demo_user_ids,
             admin_user_ids=admin_user_ids,
             mcp_admin_user_ids=frozenset(

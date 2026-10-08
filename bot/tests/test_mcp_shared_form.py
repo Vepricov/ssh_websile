@@ -248,3 +248,25 @@ def test_known_user_gets_two_a100_only_after_admin_approval(tmp_path):
         request_id = notices[0].reply_markup.inline_keyboard[0][0].callback_data.rsplit(":", 1)[-1]
         assert storage.claim_pending_request(request_id).servers == ("2_a100_brain",)
     asyncio.run(scenario())
+
+
+def test_closed_alibaba_intake_rejects_only_alibaba_part(tmp_path):
+    async def scenario():
+        storage = Storage(tmp_path / "db", b"a" * 32)
+        storage.save_profile(Profile(42, "alice_tg", "Alice Smith", "Bob Jones"))
+        mcp = McpAccessService(storage, Bridge(), frozenset({1}))
+        telegram = Telegram()
+        bot = Bot("123456:abcdef", session=telegram)
+        dispatcher = Dispatcher()
+        dispatcher.include_router(build_router(
+            AccessService(storage, Provisioner(), ascend_group_url="https://t.me/+test"),
+            object(), admin_user_ids=frozenset({1}), mcp_service=mcp,
+            alibaba_requests_open=False))
+        payload = dict(version=1, kind="server_request", server_username="alice",
+                       access_term="бессрочно", activity="", servers=["brain_lab", "alibaba_ascend"])
+        await dispatcher.feed_update(bot, Update(update_id=1, message=message(payload)))
+        notices = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1]
+        assert len(notices) == 1 and "Alibaba" not in notices[0].text
+        assert any(isinstance(x, SendMessage) and x.chat_id == 42
+                   and "Приём заявок на Alibaba временно закрыт" in x.text for x in telegram.sent)
+    asyncio.run(scenario())

@@ -578,6 +578,13 @@ async def deliver_ascend_reminders(
     return tuple(delivered)
 
 
+ALIBABA_REQUESTS_CLOSED_TEXT = (
+    "Приём заявок на Alibaba временно закрыт: пока не добавляем новых людей, "
+    "добавим после переезда. Когда приём откроется, подайте заявку снова. "
+    "Остальные серверы выдаются как обычно."
+)
+
+
 async def run_ascend_reminder_loop(
     bot: object,
     storage: Storage,
@@ -900,6 +907,7 @@ def build_router(
     gpu_status_scanner: GpuStatusScanner | None = None,
     disk_scanner: DiskScanner | None = None,
     mcp_service: McpAccessService | None = None,
+    alibaba_requests_open: bool = True,
 ) -> Router:
     router = Router()
 
@@ -1149,6 +1157,12 @@ def build_router(
             return
         request_id = secrets.token_urlsafe(8)
         is_ascend = application.servers == ("alibaba_ascend",)
+        if is_ascend and not alibaba_requests_open:
+            await message.answer(
+                ALIBABA_REQUESTS_CLOSED_TEXT,
+                reply_markup=await personalized_main_menu(message.from_user.id),
+            )
+            return
         if is_ascend and not service.ascend_group_url:
             await message.answer(
                 "Заявки на Alibaba временно недоступны: "
@@ -2106,6 +2120,7 @@ async def run(settings: Settings) -> None:
             gpu_status_scanner,
             disk_scanner,
             mcp_service=mcp_service,
+            alibaba_requests_open=settings.alibaba_requests_open,
         )
     )
     monitor_task = None
@@ -2123,7 +2138,8 @@ async def run(settings: Settings) -> None:
         gitlab_notify_task = asyncio.create_task(
             run_gitlab_notify_loop(bot, settings.mcp_admin_user_ids)
         )
-    if settings.admin_user_ids:
+    # While Alibaba intake is closed, waiting requests stay pending without daily nagging.
+    if settings.admin_user_ids and settings.alibaba_requests_open:
         ascend_reminder_task = asyncio.create_task(
             run_ascend_reminder_loop(bot, storage, settings.admin_user_ids)
         )
