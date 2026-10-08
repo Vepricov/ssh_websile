@@ -29,9 +29,17 @@ class McpBridge:
             timeout=45,
             check=False,
         )
-        # Never include child output in an exception: it may contain credentials.
+        # Полезную нагрузку наружу не отдаём, а причину — отдаём. Дочерний скрипт по
+        # своему контракту печатает в stderr только имя исключения и его текст, без
+        # ключей и без запроса. Прежде здесь терялось и оно, и в журнале оставался
+        # голый RuntimeError: 04-10-2026 на этом встали две заявки, и причину пришлось
+        # искать запуском скрипта руками.
         if result.returncode:
-            raise RuntimeError("MCP access service unavailable")
+            lines = (result.stderr or "").strip().splitlines()
+            detail = lines[-1][:200] if lines else ""
+            raise RuntimeError(
+                f"MCP access service unavailable: {detail}" if detail
+                else "MCP access service unavailable")
         data = json.loads(result.stdout)
         if (data.get("role") not in ROLES or data.get("telegram_user_id") != user_id
                 or not data.get("email") or not data.get("user_id")):

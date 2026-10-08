@@ -195,7 +195,7 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
         assert bridge.calls == []
         await dispatcher.feed_update(bot, Update(update_id=4, callback_query=callback(1, f"mcp:grant:member:{row['request_id']}")))
         assert service.get(42)["status"] == "delivered"
-        delivery = next(x for x in telegram.sent if isinstance(x, SendMessage) and "Личный ключ:" in x.text)
+        delivery = next(x for x in telegram.sent if isinstance(x, SendMessage) and "Доступ в базу знания лаборатории выдан" in x.text)
         assert delivery.chat_id == 42
         assert delivery.protect_content is True
         assert "https://t.me/example_testing" in delivery.text

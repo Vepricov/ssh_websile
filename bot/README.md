@@ -125,6 +125,21 @@ uv run pytest -q
 uv run python -m compileall -q server_access_bot
 ```
 
+## Deployment
+
+Production runs on do-vpn from a plain clone of this repository at
+`/opt/ssh_websile` (read-only deploy key `/root/.ssh/ssh_websile_deploy`).
+The service runs `bot/` from that clone with the virtualenv
+`/opt/server-access-bot/.venv`. Never edit files on the server: change the
+code here, merge the pull request, then deploy:
+
+```bash
+ssh do-vpn 'cd /opt/ssh_websile && git pull --ff-only && systemctl restart server-access-bot'
+```
+
+`git -C /opt/ssh_websile status` must stay clean. A dirty tree means someone
+edited production directly; commit that work here before the next pull.
+
 ## Runtime secrets
 
 The deployment reads `/etc/server-access-bot/bot.env` and a Google service
