@@ -14,10 +14,12 @@ from .mcp_access import McpAccessService
 from .mcp_profile import FORM_URL, ROLES, is_application, parse_application
 
 LOGGER = logging.getLogger(__name__)
-MCP_MENU = "🧠 База знаний MCP"
+MCP_MENU = "🧠 Доступ к базе знания"
+#: Надпись прежней кнопки. Клавиатура в чате живёт до замены, поэтому бот обязан
+#: понимать и её, иначе человек нажимает и не получает ответа.
+MCP_MENU_БЫЛО = "🧠 База знаний MCP"
 ATLAS_URL = "https://brain-lab-research.github.io/claude-brainlab/lab-showcase/#memory"
-GUIDE_URL = "https://github.com/brain-lab-research/claude-brainlab/blob/main/docs/onboarding.md"
-MCP_URL = "https://68-183-24-188.sslip.io:9443/mcp"
+GUIDE_URL = "https://github.com/brain-lab-research/claude-brainlab/blob/codex/lab-knowledge-mvp/docs/onboarding.md"
 
 
 class McpForm(StatesGroup):
@@ -49,7 +51,7 @@ def actions(request_id: str, role: str = "member") -> InlineKeyboardMarkup:
 def request_text(row: dict) -> str:
     role = row.get("approved_role") or row.get("requested_role") or "member"
     contact = f"@{html.escape(row['telegram_username'])}" if row.get("telegram_username") else "Открыть Telegram"
-    details = ["<b>Заявка в базу знаний MCP</b>",
+    details = ["<b>Заявка на доступ к базе знания</b>",
                f"<b>{html.escape(row['full_name'])}</b>",
                f"Ник: <b>{html.escape(row.get('username') or row.get('telegram_username') or 'не указан')}</b>",
                f'<a href="tg://user?id={row["telegram_user_id"]}">{contact}</a>',
@@ -81,7 +83,7 @@ def welcome_text(access: dict, group_url: str = "") -> str:
     name = html.escape(access.get("full_name") or "Участник")
     text = (
         "<b>Доступ в базу знания лаборатории выдан</b>\n\n"
-        f"{name} · <b>{html.escape(access.get('username') or access.get('telegram_username') or 'MCP')}</b>\n"
+        f"{name} · <b>{html.escape(access.get('username') or access.get('telegram_username') or 'участник')}</b>\n"
         f"Роль: <b>{ROLES[access['role']][0]}</b>\n{ROLES[access['role']][1]}\n"
     )
     if site:
@@ -132,11 +134,9 @@ def welcome_text(access: dict, group_url: str = "") -> str:
             "Дальше <code>lab here &lt;работа&gt;</code> — и работа склонирована в папку "
             "проекта. Ключ действует год.\n"
         )
-    # Про MCP в сообщении больше ничего нет. Ключ по-прежнему выдаётся и лежит в службе,
-    # но поиском по базе никто не пользовался, а звать двадцать человек настраивать сервер,
-    # который мы собираемся переделывать, — это путать их на ровном месте. Владелец
-    # 05-10-2026: «надо удалять, если мы им щас не пользуемся, чтобы не путать меня и
-    # агентов; потом настроим, когда прикрутим туда поиск». База читается из клона.
+    # Ключа MCP здесь нет и быть не может: 05-10-2026 его убрали из сообщения, потому
+    # что поиском никто не пользовался, а 07-10-2026 службу удалили вместе с её базой.
+    # База читается из клона, и выдача заводит вход в GitLab, а не ключ к службе.
     text += (
         f"\n<b>Приглашение в работу</b>\n"
         f"Чтобы вас позвали в чужую работу, нужен этот идентификатор: "
@@ -161,9 +161,9 @@ async def submit_application(message: Message, bot: Bot, service: McpAccessServi
     )
     if not row["created"]:
         await message.answer(
-            "Ваш доступ к MCP уже активен. Подключение: /mcp."
+            "Ваш доступ к базе уже активен. Подключение: /mcp."
             if row["status"] in {"granted", "delivered"} else
-            "Ваша заявка MCP уже отправлена. Дождитесь решения Андрея."
+            "Ваша заявка уже отправлена. Дождитесь решения Андрея."
         )
         return
     notified = False
@@ -205,7 +205,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             return
         rows = await asyncio.to_thread(service.pending, message.from_user.id)
         if not rows:
-            await message.answer("Необработанных заявок MCP нет.")
+            await message.answer("Необработанных заявок нет.")
         for row in rows:
             await message.answer(request_text(row), reply_markup=actions(row["request_id"], row.get("approved_role") or row.get("requested_role") or "member"))
 
@@ -225,19 +225,19 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             LOGGER.error("MCP revocation failed: %s", type(error).__name__)
             await message.answer("Отзыв не подтверждён. Повторите команду.")
         else:
-            await message.answer("Ключ MCP отозван.")
+            await message.answer("Ключ для git отозван.")
 
     @router.message(Command("mcp"))
-    @router.message(F.text == MCP_MENU)
+    @router.message(F.text.in_({MCP_MENU, MCP_MENU_БЫЛО}))
     async def start(message: Message, state: FSMContext) -> None:
         await state.clear()
         if not service.admins:
-            await message.answer("Выдача доступа к MCP пока не настроена.")
+            await message.answer("Выдача доступа к базе пока не настроена.")
             return
         row = await asyncio.to_thread(service.get, message.from_user.id)
         if row and row["status"] in {"granted", "delivered"}:
             await message.answer(
-                "<b>Ваш доступ к MCP активен</b>\n"
+                "<b>Ваш доступ к базе знания активен</b>\n"
                 "Получить ключ повторно можно только здесь, в личном чате.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="Показать подключение", callback_data="mcp:show"),
@@ -246,7 +246,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             )
             return
         if row and row["status"] in {"pending", "approved"}:
-            await message.answer("Ваша заявка MCP уже отправлена. После одобрения бот пришлёт подключение.")
+            await message.answer("Ваша заявка уже отправлена. После одобрения бот пришлёт подключение.")
             return
         await state.set_state(McpForm.waiting_for_form)
         await message.answer(
@@ -261,8 +261,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             "администратора: правка входит предложением о слиянии, и слияние человеком "
             "и есть запись.\n\n"
             "После одобрения бот пришлёт всё сразу: вход на сайт базы, ключ для git — им "
-            "агент клонирует работу и открывает предложения, — и ключ MCP, которым агент "
-            "ищет по базе, не открывая браузер.\n\n"
+            "агент клонирует работу и открывает предложения.\n\n"
             f'<a href="{ATLAS_URL}">Посмотреть, как это устроено</a> — витрина открыта '
             "всем, данные в ней учебные.\n\n"
             f"{FORM_HINT}\n\n"
@@ -328,7 +327,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
                 await deliver(bot, access)
             else:
                 user_id = await asyncio.to_thread(service.reject, callback.from_user.id, request_id)
-                await bot.send_message(user_id, "Заявка MCP отклонена. Уточните детали у Андрея.")
+                await bot.send_message(user_id, "Заявка на доступ отклонена. Уточните детали у Андрея.")
         except ValueError as error:
             await callback.message.answer(html.escape(str(error)))
             return
@@ -340,8 +339,8 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             LOGGER.exception("MCP approval/delivery failed: %s: %s",
                              type(error).__name__, error)
             await callback.message.answer(
-                "Выдача или доставка не завершена. Нажмите «Одобрить MCP» повторно: "
-                "аккаунт и ключ не дублируются. Заявка сохранена в /mcp_requests."
+                "Выдача или доставка не завершена. Нажмите «Одобрить» повторно: "
+                "учётка и ключ не дублируются. Заявка сохранена в /mcp_requests."
             )
             return
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -362,7 +361,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
     async def confirm_revoke(callback: CallbackQuery) -> None:
         await callback.answer()
         await callback.message.answer(
-            "Агенты с этим ключом потеряют доступ к MCP. Отозвать его?",
+            "Агенты с этим ключом потеряют доступ к репозиториям базы. Отозвать его?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="Да, отозвать мой ключ", callback_data="mcp:revoke-confirm"),
             ]]),
