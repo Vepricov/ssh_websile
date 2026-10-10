@@ -19,7 +19,7 @@ MCP_MENU = "🧠 Доступ к базе знания"
 #: понимать и её, иначе человек нажимает и не получает ответа.
 MCP_MENU_БЫЛО = "🧠 База знаний MCP"
 ATLAS_URL = "https://brain-lab-research.github.io/claude-brainlab/lab-showcase/#memory"
-GUIDE_URL = "https://github.com/brain-lab-research/claude-brainlab/blob/codex/lab-knowledge-mvp/docs/onboarding.md"
+GUIDE_URL = "https://github.com/brain-lab-research/claude-brainlab/blob/main/docs/onboarding.md"
 
 
 class McpForm(StatesGroup):
