@@ -90,7 +90,7 @@ def test_alibaba_provisioner_creates_account_and_parses_credentials() -> None:
             command,
             0,
             "[2026-09-04T11:14:33Z] готово: alice (Alice Example)\n"
-            "    ssh alice@10.0.117.196\n"
+            "    ssh alice@10.0.117.197\n"
             "    пароль: generated-secret\n"
             "[2026-09-04T11:14:33Z] лаборатория brainlab: счёт brainlab, "
             "партиция brain, карты brain\n",
@@ -103,7 +103,7 @@ def test_alibaba_provisioner_creates_account_and_parses_credentials() -> None:
 
     assert access.host == "alibaba_ascend"
     assert access.password == "generated-secret"
-    assert access.connection == "ssh alice@10.0.117.196"
+    assert access.connection == "ssh alice@10.0.117.197"
     assert access.created is True
     assert calls == [
         [
@@ -122,7 +122,7 @@ def test_alibaba_provisioner_creates_account_and_parses_credentials() -> None:
             "/root/.ssh/china_cluster_agents",
             "-o",
             "IdentitiesOnly=yes",
-            "veprikov@10.0.117.196",
+            "veprikov@10.0.117.197",
             "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision "
             "provision alice 'Alice Example' 101",
         ]

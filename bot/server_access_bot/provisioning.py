@@ -22,7 +22,7 @@ HOSTS = frozenset(
 )
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 ALIBABA_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
-ALIBABA_TARGET = "veprikov@10.0.117.196"
+ALIBABA_TARGET = "veprikov@10.0.117.197"
 ALIBABA_IDENTITY_FILE = "/root/.ssh/china_cluster_agents"
 ALIBABA_HELPER = "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision"
 PASSWORD_LINE_RE = re.compile(r"(?im)^(\s*пароль:)\s*.*$")
@@ -216,7 +216,7 @@ class SshProvisioner:
             line = raw_line.strip()
             if line.startswith("пароль:"):
                 password = line.partition(":")[2].strip()
-            elif line == f"ssh {username}@10.0.117.196":
+            elif line == f"ssh {username}@10.0.117.197":
                 connection = line
             elif f"готово: {username} (" in line:
                 created = True

@@ -166,7 +166,7 @@ def test_alibaba_access_shows_credentials_slurm_and_instructions() -> None:
         host="alibaba_ascend",
         username="alice",
         password="generated-secret",
-        connection="ssh alice@10.0.117.196",
+        connection="ssh alice@10.0.117.197",
         group_url="https://t.me/+test-only",
         created=True,
     )
@@ -177,7 +177,7 @@ def test_alibaba_access_shows_credentials_slurm_and_instructions() -> None:
     assert "✅ <b>Alibaba</b>" in text
     assert "Логин: <code>alice</code>" in text
     assert "Пароль: <code>generated-secret</code>" in text
-    assert "ssh alice@10.0.117.196" in text
+    assert "ssh alice@10.0.117.197" in text
     assert "Slurm account: <code>brainlab</code>" in text
     assert "Partition: <code>brain</code>" in text
     assert "Карты: <code>brain</code>" in text
