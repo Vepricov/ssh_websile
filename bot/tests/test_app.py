@@ -513,9 +513,8 @@ def test_available_server_message_is_complete() -> None:
     assert "уже выданный доступ к BrainLab" in catalog
     assert "отдельного одобрения администратора" in catalog
     assert "Alibaba" in catalog
-    assert "аккаунт создаётся вручную" in catalog
-    assert "Логин выдаётся отдельно" in catalog
-    assert "@fckand1" not in catalog
+    assert "Доступ выдаётся вручную" in catalog
+    assert "@fckand1" in catalog
     assert "Для подключения нужен тот же VPN, что и для H200" in catalog
     assert "@aloeme" not in catalog
     assert "Яндекс" not in catalog

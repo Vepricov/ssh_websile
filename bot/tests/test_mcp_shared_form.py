@@ -268,5 +268,5 @@ def test_closed_alibaba_intake_rejects_only_alibaba_part(tmp_path):
         notices = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1]
         assert len(notices) == 1 and "Alibaba" not in notices[0].text
         assert any(isinstance(x, SendMessage) and x.chat_id == 42
-                   and "Приём заявок на Alibaba временно закрыт" in x.text for x in telegram.sent)
+                   and "@fckand1" in x.text for x in telegram.sent)
     asyncio.run(scenario())
