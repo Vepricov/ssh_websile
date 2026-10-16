@@ -14,6 +14,7 @@ class Settings:
     sheet_id: int
     ascend_group_url: str = ""
     alibaba_requests_open: bool = True
+    closed_servers: frozenset[str] = frozenset()
     demo_user_ids: frozenset[int] = frozenset()
     admin_user_ids: frozenset[int] = frozenset()
     mcp_admin_user_ids: frozenset[int] = frozenset()
@@ -68,6 +69,11 @@ class Settings:
                 "ALIBABA_REQUESTS_OPEN", "true"
             ).lower()
             in {"1", "true", "yes", "on"},
+            closed_servers=frozenset(
+                value.strip()
+                for value in os.environ.get("CLOSED_SERVERS", "").split(",")
+                if value.strip()
+            ),
             demo_user_ids=demo_user_ids,
             admin_user_ids=admin_user_ids,
             mcp_admin_user_ids=frozenset(

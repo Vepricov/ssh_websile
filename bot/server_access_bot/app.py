@@ -586,6 +586,14 @@ ALIBABA_REQUESTS_CLOSED_TEXT = (
 )
 
 
+def server_closed_text(hosts: Sequence[str]) -> str:
+    names = ", ".join(SERVER_NAMES.get(host, host) for host in hosts)
+    return (
+        f"Приём заявок на {names} сейчас закрыт: сервер недоступен. "
+        "Попробуйте позже или уточните у администратора."
+    )
+
+
 async def run_ascend_reminder_loop(
     bot: object,
     storage: Storage,
@@ -909,6 +917,7 @@ def build_router(
     disk_scanner: DiskScanner | None = None,
     mcp_service: McpAccessService | None = None,
     alibaba_requests_open: bool = True,
+    closed_servers: frozenset[str] = frozenset(),
 ) -> Router:
     router = Router()
 
@@ -1330,6 +1339,17 @@ def build_router(
                 reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
+        if application is not None and closed_servers:
+            blocked = [
+                host for host in application.servers if host in closed_servers
+            ]
+            if blocked:
+                await message.answer(
+                    server_closed_text(blocked),
+                    reply_markup=await personalized_main_menu(message.from_user.id),
+                )
+                await state.clear()
+                return
         try:
             if application is not None:
                 await asyncio.to_thread(service.validate_request, application)
@@ -2120,6 +2140,7 @@ async def run(settings: Settings) -> None:
             disk_scanner,
             mcp_service=mcp_service,
             alibaba_requests_open=settings.alibaba_requests_open,
+            closed_servers=settings.closed_servers,
         )
     )
     monitor_task = None

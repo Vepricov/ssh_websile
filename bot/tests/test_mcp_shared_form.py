@@ -270,3 +270,27 @@ def test_closed_alibaba_intake_rejects_only_alibaba_part(tmp_path):
         assert any(isinstance(x, SendMessage) and x.chat_id == 42
                    and "@fckand1" in x.text for x in telegram.sent)
     asyncio.run(scenario())
+
+
+def test_closed_server_intake_is_refused_without_pending(tmp_path):
+    async def scenario():
+        storage = Storage(tmp_path / "db", b"a" * 32)
+        storage.save_profile(Profile(42, "alice_tg", "Alice Smith", "Bob Jones"))
+        mcp = McpAccessService(storage, Bridge(), frozenset({1}))
+        telegram = Telegram()
+        bot = Bot("123456:abcdef", session=telegram)
+        dispatcher = Dispatcher()
+        dispatcher.include_router(build_router(
+            AccessService(storage, Provisioner()), object(),
+            admin_user_ids=frozenset({1}), mcp_service=mcp,
+            closed_servers=frozenset({"2_a100_brain"})))
+        payload = dict(version=1, kind="server_request", server_username="alice",
+                       access_term="бессрочно", activity="", servers=["2_a100_brain"])
+        await dispatcher.feed_update(bot, Update(update_id=1, message=message(payload)))
+        # No admin notice was sent, so no pending request was created.
+        assert not [x for x in telegram.sent
+                    if isinstance(x, SendMessage) and x.chat_id == 1]
+        # The applicant is told the server is closed.
+        assert any(isinstance(x, SendMessage) and x.chat_id == 42
+                   and "закрыт" in x.text for x in telegram.sent)
+    asyncio.run(scenario())
