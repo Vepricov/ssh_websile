@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <title>BRAIn Lab — доступ к базе знаний</title>
-    <link rel="stylesheet" href="access-form.css?v=access-cleanup-20261001">
+    <link rel="stylesheet" href="access-form.css?v=roles-20261018">
     <style>
         .form-header a { color: var(--accent); text-underline-offset: 4px; }
         .server-card small { font-size: 12px; line-height: 1.45; }
@@ -46,22 +46,26 @@
                 <div class="section-number">02</div>
                 <div class="section-content">
                     <h2 id="role-title">Какая роль нужна?</h2>
-                    <p class="section-hint">Вы запрашиваете роль, Андрей одобряет. Для исследовательской работы обычно достаточно участника.</p>
+                    <p class="section-hint">Вы запрашиваете роль, одобряет Андрей или любой лид лаборатории. Роль в лаборатории — это роль в GitLab, её название стоит в скобках. Начать стоит с гостя: уровень потом поднимают.</p>
                     <div class="server-grid">
-                        <label class="server-card"><input type="radio" name="role" value="member" checked>
-                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">MEMBER</span>
-                            <b>Участник</b><small>Читать общую базу, создавать свои проекты и работать в них. В чужих проектах — после приглашения.</small>
+                        <label class="server-card"><input type="radio" name="role" value="guest" checked>
+                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">GUEST</span>
+                            <b>Гость</b><small>Видит дерево направлений, тем и работ и всю литературу. Содержимое работ закрыто. С этого начинают все.</small>
                         </label>
-                        <label class="server-card"><input type="radio" name="role" value="manager">
-                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">MANAGER</span>
-                            <b>Координатор</b><small>Права участника плюс приглашение людей и управление ключами участников. Без автоматической записи во все проекты.</small>
+                        <label class="server-card"><input type="radio" name="role" value="reporter">
+                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">REPORTER</span>
+                            <b>Студент</b><small>Читает все работы целиком: утверждения, прогоны, рукописи, обсуждения. Писать нельзя, обсуждать можно.</small>
+                        </label>
+                        <label class="server-card"><input type="radio" name="role" value="developer">
+                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">DEVELOPER</span>
+                            <b>Исследователь</b><small>Права студента плюс работа: ветки и предложения в любой работе, свои новые работы в любой теме. Сливать не может.</small>
                         </label>
                         <label class="server-card"><input type="radio" name="role" value="lead">
-                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">LEAD</span>
-                            <b>Ведущий лаборатории</b><small>Управление всеми проектами, доступами и глобальными ролями.</small>
+                            <span class="server-check" aria-hidden="true">✓</span><span class="server-kicker">MAINTAINER</span>
+                            <b>Лид</b><small>Сливает предложения во всех работах, заводит темы и владеет теми, где ведёт работу. Заявки в свои места решает сам.</small>
                         </label>
                     </div>
-                    <p class="section-hint">Внутри проекта права выдаются отдельно: читатель, соавтор или руководитель проекта. Это не глобальная роль.</p>
+                    <p class="section-hint">Это роль во всей лаборатории. В отдельной теме или работе уровень может быть выше: его выдаёт тот, кто ведёт это место, по кнопке «Request Access» на её странице.</p>
                 </div>
             </section>
             <section class="form-section" aria-labelledby="work-title">
@@ -80,6 +84,6 @@
             </button></div>
         </form>
     </main>
-    <script src="mcp-form.js?v=access-cleanup-20261001"></script>
+    <script src="mcp-form.js?v=roles-20261018"></script>
 </body>
 </html>
