@@ -193,7 +193,7 @@ def test_two_a100_uses_the_standard_add_user_helper() -> None:
             command,
             0,
             "HERMES_STATUS=CREATED\nUsername: alice\nPassword: secret\n"
-            "Подключение: ssh alice@10.55.230.12\n"
+            "Подключение: ssh alice@10.55.230.46\n"
             "Ссылка на тг группу сервера: https://t.me/example",
             "",
         )
@@ -201,7 +201,7 @@ def test_two_a100_uses_the_standard_add_user_helper() -> None:
     access = SshProvisioner(run=run).provision("2_a100_brain", "alice")
 
     assert access.host == "2_a100_brain"
-    assert access.connection == "ssh alice@10.55.230.12"
+    assert access.connection == "ssh alice@10.55.230.46"
     assert calls[0][-5:] == [
         "2_a100_brain",
         "sudo",

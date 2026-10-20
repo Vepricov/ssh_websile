@@ -686,7 +686,7 @@ def demo_accesses(
         "shkodnik_opt": f"ssh -p 10096 {username}@proxy2.cod.phystech.edu",
         "brain_lab": f"ssh -p 10210 {username}@proxy2.cod.phystech.edu",
         "vv_h200": f"ssh -p 30018 {username}@10.0.116.11",
-        "2_a100_brain": f"ssh {username}@10.55.230.12",
+        "2_a100_brain": f"ssh {username}@10.55.230.46",
         "mlsub": "mlsub run --repo <https git> --entry train.py --gpus 1",
         "alibaba_ascend": "",
     }
