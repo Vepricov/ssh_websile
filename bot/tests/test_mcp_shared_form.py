@@ -72,25 +72,25 @@ def test_mcp_checkbox_in_server_form_creates_named_request_then_approved_role(tm
         dispatcher.include_router(build_mcp_router(mcp))
         dispatcher.include_router(build_router(servers, object(), admin_user_ids=frozenset({1}), mcp_service=mcp))
         payload = dict(version=1, kind="server_request", server_username="alice",
-                       access_term="", activity="", servers=["mcp"], mcp_role="manager",
+                       access_term="", activity="", servers=["mcp"], mcp_role="developer",
                        telegram_user_id=1, full_name="Spoofed Name", recommender="Spoofed")
         await dispatcher.feed_update(bot, Update(update_id=1, message=message(payload)))
         row = mcp.get(42)
         assert row and row["status"] == "pending"
         assert row["full_name"] == "Alice Smith" and row["recommender"] == "Bob Jones"
-        assert row["username"] == "alice" and row["requested_role"] == "manager"
+        assert row["username"] == "alice" and row["requested_role"] == "developer"
         assert bridge.calls == []
         notices = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1]
         assert len(notices) == 1 and "Alice Smith" in notices[0].text and "alice" in notices[0].text
         callback = CallbackQuery(id="approval", from_user=User(id=1, is_bot=False, first_name="Owner"),
                                  chat_instance="1", message=Message(message_id=11, date=datetime.now(timezone.utc),
-                                 chat=Chat(id=1, type="private")), data=f"mcp:grant:member:{row['request_id']}")
+                                 chat=Chat(id=1, type="private")), data=f"mcp:grant:guest:{row['request_id']}")
         await dispatcher.feed_update(bot, Update(update_id=2, callback_query=callback))
-        assert bridge.calls == [(42, "member")]
+        assert bridge.calls == [(42, "guest")]
         assert mcp.get(42)["status"] == "delivered"
         delivery = next(x for x in telegram.sent if isinstance(x, SendMessage) and "Доступ в базу знания лаборатории выдан" in x.text)
         assert delivery.protect_content and delivery.chat_id == 42
-        assert "alice" in delivery.text and "Участник" in delivery.text
+        assert "alice" in delivery.text and "Гость" in delivery.text
     asyncio.run(scenario())
 
 

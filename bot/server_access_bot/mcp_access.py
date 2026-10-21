@@ -5,14 +5,15 @@ import os
 import secrets
 import subprocess
 import threading
+from typing import Callable
 
 from .provisioning import SSH_OPTIONS
 from .storage import Storage
-from .mcp_profile import ROLES
+from .mcp_profile import PREZHNIE, ROLES
 
 
 class McpBridge:
-    def _call(self, action: str, user_id: int, token: str = "", role: str = "member",
+    def _call(self, action: str, user_id: int, token: str = "", role: str = "guest",
               username: str = "", full_name: str = "") -> dict:
         # Имя и полное имя нужны, чтобы учётка на сайте называлась по-человечески, а не
         # tg123456789. Оба необязательны: без них сервер соберёт имя сам.
@@ -46,7 +47,7 @@ class McpBridge:
             raise RuntimeError("Unexpected MCP account role")
         return data
 
-    def issue(self, user_id: int, token: str, role: str = "member",
+    def issue(self, user_id: int, token: str, role: str = "guest",
               username: str = "", full_name: str = "") -> dict:
         return self._call("issue", user_id, token, role, username, full_name)
 
@@ -55,10 +56,19 @@ class McpBridge:
 
 
 class McpAccessService:
-    def __init__(self, storage: Storage, bridge: McpBridge, admins: frozenset[int]):
+    """Приём в лабораторию: решает владелец или любой лид.
+
+    Владелец 18-10-2026: «я хочу, чтобы нового участника одобряли все мантейнеры». Лиды
+    приходят отдельной функцией, а не списком в настройках: состав лидов меняется в
+    GitLab, и настройку за ним никто не правит.
+    """
+
+    def __init__(self, storage: Storage, bridge: McpBridge, admins: frozenset[int],
+                 leads: Callable[[], frozenset[int]] | None = None):
         self.storage = storage
         self.bridge = bridge
         self.admins = admins
+        self._leads = leads or (lambda: frozenset())
         self._lock = threading.Lock()
         with storage._connect() as db:
             db.execute("""
@@ -77,16 +87,23 @@ class McpAccessService:
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(mcp_requests)")}
             for name, default in (("username", ""), ("telegram_username", ""),
-                                  ("recommender", ""), ("requested_role", "member"),
+                                  ("recommender", ""), ("requested_role", "guest"),
                                   ("approved_role", "")):
                 if name not in columns:
                     db.execute(f"ALTER TABLE mcp_requests ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'")
-            db.execute("UPDATE mcp_requests SET approved_role='member' "
+            db.execute("UPDATE mcp_requests SET approved_role='guest' "
                        "WHERE approved_role='' AND status IN ('approved','granted','delivered')")
 
+    def approvers(self) -> frozenset[int]:
+        """Кому звонить про новую заявку и кто вправе её решить."""
+        return frozenset(self.admins | self._leads())
+
+    def can_approve(self, user_id: int) -> bool:
+        return user_id in self.approvers()
+
     def _admin(self, user_id: int) -> None:
-        if user_id not in self.admins:
-            raise PermissionError("Only the access owner can approve requests")
+        if not self.can_approve(user_id):
+            raise PermissionError("Only the owner or a lab lead can approve requests")
 
     def get(self, user_id: int) -> dict | None:
         with self.storage._connect() as db:
@@ -109,7 +126,7 @@ class McpAccessService:
 
     def request(self, user_id: int, full_name: str, purpose: str = "", *,
                 username: str = "", telegram_username: str = "", recommender: str = "",
-                requested_role: str = "member") -> dict:
+                requested_role: str = "guest") -> dict:
         if not self.admins:
             raise RuntimeError("MCP approvals are not configured")
         if user_id <= 0 or not full_name.strip() or len(purpose.strip()) > 1000:
@@ -121,6 +138,7 @@ class McpAccessService:
             if previous and previous["status"] not in {"rejected", "revoked"}:
                 if previous["status"] in {"granted", "delivered"} and username:
                     current_role = json.loads(previous["account"])["role"]
+                    current_role = PREZHNIE.get(current_role, current_role)
                     if list(ROLES).index(requested_role) > list(ROLES).index(current_role):
                         request_id = secrets.token_hex(12)
                         with self.storage._connect() as db:
@@ -170,10 +188,15 @@ class McpAccessService:
                 ).fetchone()
                 if row is None or row["status"] in {"rejected", "revoked"}:
                     raise ValueError("Заявка уже закрыта.")
-                chosen_role = role or row["approved_role"] or row["requested_role"]
+                # Заявки до 18-10-2026 хранят прежние имена ролей (`member`, `manager`).
+                # Без перевода кнопка «показать подключение» у тридцати старых участников
+                # падала на «Неизвестная роль».
+                approved_role = PREZHNIE.get(row["approved_role"], row["approved_role"])
+                chosen_role = role or approved_role or row["requested_role"]
+                chosen_role = PREZHNIE.get(chosen_role, chosen_role)
                 if chosen_role not in ROLES:
                     raise ValueError("Неизвестная роль.")
-                if row["approved_role"] and chosen_role != row["approved_role"]:
+                if approved_role and chosen_role != approved_role:
                     raise ValueError("Роль этой заявки уже одобрена. Повтор не меняет права.")
                 db.execute(
                     "UPDATE mcp_requests SET approved_by=?, approved_role=?, status='approved', "
@@ -185,6 +208,7 @@ class McpAccessService:
             token = self.storage.cipher.decrypt(secret[:12], secret[12:], str(user_id).encode()).decode()
             if row["status"] in {"granted", "delivered"}:
                 account = json.loads(row["account"])
+                account["role"] = PREZHNIE.get(account.get("role"), account.get("role"))
             else:
                 # Same token on every retry, including a crash after the remote commit.
                 account = self.bridge.issue(
