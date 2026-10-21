@@ -34,6 +34,7 @@ from .mcp_access import McpAccessService, McpBridge
 from .gitlab_access import (build_gitlab_router, run_gitlab_access_loop,
                             лиды_из_кеша, включено as gitlab_включён)
 from .gitlab_notify import run_gitlab_notify_loop
+from .work_access import WORKS_BUTTON, build_work_access_router
 from .mcp_router import MCP_MENU, build_mcp_router, submit_application as submit_mcp_application
 from .mcp_profile import parse_application as parse_mcp_application
 from .disk_monitoring import (
@@ -192,7 +193,7 @@ def main_menu(
                 KeyboardButton(text="📚 Сайт и правила"),
                 KeyboardButton(text="📡 Статус серверов"),
             ],
-            [KeyboardButton(text=MCP_MENU)],
+            [KeyboardButton(text=MCP_MENU), KeyboardButton(text=WORKS_BUTTON)],
         ],
         resize_keyboard=True,
     )
@@ -682,6 +683,10 @@ def onboarding_text() -> str:
         "Через <b>Получить доступ</b> можно отправить заявку на сервер или "
         "отдельный сервис. В <b>Мои серверы</b> бот показывает ваши логины, "
         "команды подключения и сохранённые пароли.\n\n"
+        "<b>База знаний</b> — общая память лаборатории в GitLab: вход по заявке, "
+        "кнопка <b>🧠 База знаний</b>. Когда вход есть, роль в отдельной работе "
+        "(читать её целиком или работать в ней) просится кнопкой <b>📂 Доступ к "
+        "работам</b>: выберите работу, заявка уйдёт её ведущему.\n\n"
         f"{LAB_CHAT_LINE}"
     )
 
@@ -2141,6 +2146,10 @@ async def run(settings: Settings) -> None:
     # Заявки на доступ в GitLab: решаются кнопкой в телеграме. Роутер подключается всегда,
     # а опрос — только когда есть ключ: без ключа опрашивать нечего.
     dispatcher.include_router(build_gitlab_router(settings.mcp_admin_user_ids))
+    # Роль в отдельной работе: гость в корне не видит «Request access», и просит здесь.
+    dispatcher.include_router(build_work_access_router(
+        settings.mcp_admin_user_ids,
+        lambda телеграм: str((mcp_service.get(телеграм) or {}).get("username") or "")))
     dispatcher.include_router(
         build_router(
             service,
