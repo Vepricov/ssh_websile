@@ -32,7 +32,7 @@ from aiogram.types import (
 from .config import Settings
 from .mcp_access import McpAccessService, McpBridge
 from .gitlab_access import (build_gitlab_router, run_gitlab_access_loop,
-                            включено as gitlab_включён)
+                            лиды_из_кеша, включено as gitlab_включён)
 from .gitlab_notify import run_gitlab_notify_loop
 from .mcp_router import MCP_MENU, build_mcp_router, submit_application as submit_mcp_application
 from .mcp_profile import parse_application as parse_mcp_application
@@ -81,6 +81,13 @@ from .webapp import parse_web_app_data
 
 LOGGER = logging.getLogger(__name__)
 RULES_URL = "https://vepricov.github.io/ssh_websile"
+# Общая группа лаборатории в Telegram. Ссылка стоит в каждом сообщении о доступе:
+# до 20-10-2026 её получали только те, кому выдавали вход в базу, и то последней строкой.
+LAB_CHAT_URL = "https://t.me/+ePVIkcRT0g9lNjdi"
+LAB_CHAT_LINE = (
+    f'💬 <b>Общение лаборатории:</b> <a href="{LAB_CHAT_URL}">группа BRAIn Lab в Telegram</a> — '
+    "вопросы, новости и обратная связь. Вступайте."
+)
 FORM_URL = f"{RULES_URL}/access-form.html"
 SERVER_FORM_URL = f"{RULES_URL}/server-form.html"
 ASCEND_REMINDER_INTERVAL_SECONDS = 86400
@@ -674,7 +681,8 @@ def onboarding_text() -> str:
         "условия подключения.\n\n"
         "Через <b>Получить доступ</b> можно отправить заявку на сервер или "
         "отдельный сервис. В <b>Мои серверы</b> бот показывает ваши логины, "
-        "команды подключения и сохранённые пароли."
+        "команды подключения и сохранённые пароли.\n\n"
+        f"{LAB_CHAT_LINE}"
     )
 
 
@@ -904,6 +912,7 @@ def server_dashboard_text(
             f"{ALIBABA_VPN_NOTE}"
         )
     sections.append(f'Правила: <a href="{RULES_URL}">открыть сайт</a>')
+    sections.append(LAB_CHAT_LINE)
     return "\n\n".join(sections)
 
 
@@ -2121,7 +2130,10 @@ async def run(settings: Settings) -> None:
         default=BOT_DEFAULTS,
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
-    mcp_service = McpAccessService(storage, McpBridge(), settings.mcp_admin_user_ids)
+    # Лиды лаборатории решают заявки наравне с владельцем. Список ведёт GitLab, бот
+    # обновляет его проходом заявок и читает здесь из кеша.
+    mcp_service = McpAccessService(storage, McpBridge(), settings.mcp_admin_user_ids,
+                                   лиды_из_кеша)
     dispatcher.include_router(build_mcp_router(
         mcp_service,
         settings.mcp_testing_group_url,

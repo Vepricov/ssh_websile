@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from .gitlab_access import запомнить_логин
 from .mcp_access import McpAccessService
-from .mcp_profile import FORM_URL, ROLES, is_application, parse_application
+from .mcp_profile import FORM_URL, PREZHNIE, ROLES, is_application, parse_application
 
 LOGGER = logging.getLogger(__name__)
 MCP_MENU = "🧠 База знаний MCP"
@@ -37,7 +37,7 @@ def form_menu() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="Главное меню")]], resize_keyboard=True)
 
 
-def actions(request_id: str, role: str = "member") -> InlineKeyboardMarkup:
+def actions(request_id: str, role: str = "guest") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=f"Одобрить · {ROLES[role][0]}", callback_data=f"mcp:grant:{role}:{request_id}"),
     ], [
@@ -47,14 +47,17 @@ def actions(request_id: str, role: str = "member") -> InlineKeyboardMarkup:
 
 
 def request_text(row: dict) -> str:
-    role = row.get("approved_role") or row.get("requested_role") or "member"
+    # Прежние имена ролей переводятся: заявка, поданная до 17-10-2026, иначе уронила бы
+    # показ неизвестным ключом.
+    role = PREZHNIE.get(сырое := (row.get("approved_role") or row.get("requested_role")
+                                  or "guest"), сырое)
     contact = f"@{html.escape(row['telegram_username'])}" if row.get("telegram_username") else "Открыть Telegram"
     details = ["<b>Заявка в базу знаний MCP</b>",
                f"<b>{html.escape(row['full_name'])}</b>",
                f"Ник: <b>{html.escape(row.get('username') or row.get('telegram_username') or 'не указан')}</b>",
                f'<a href="tg://user?id={row["telegram_user_id"]}">{contact}</a>',
                f"Рекомендатель: {html.escape(row.get('recommender') or 'не указан')}",
-               f"Запрошена роль: <b>{ROLES[row.get('requested_role') or 'member'][0]}</b>",
+               f"Запрошена роль: <b>{ROLES[PREZHNIE.get(row.get('requested_role') or 'guest', row.get('requested_role') or 'guest')][0]}</b>",
                ROLES[role][1]]
     if row.get("purpose"):
         details.append(f"Задачи: {html.escape(row['purpose'])}")
@@ -84,6 +87,12 @@ def welcome_text(access: dict, group_url: str = "") -> str:
         f"{name} · <b>{html.escape(access.get('username') or access.get('telegram_username') or 'MCP')}</b>\n"
         f"Роль: <b>{ROLES[access['role']][0]}</b>\n{ROLES[access['role']][1]}\n"
     )
+    # Группа стоит вторым абзацем, а не последней строкой: в конце после ключей и
+    # инструкций её не замечали (20-10-2026).
+    if group_url:
+        text += (f'\n💬 <b>Общение лаборатории:</b> <a href="{html.escape(group_url, quote=True)}">'
+                 "группа BRAIn Lab в Telegram</a> — вопросы, новости и обратная связь. "
+                 "Вступайте.\n")
     if site:
         text += (
             f'\n<b>С чего начать:</b> <a href="{html.escape(site, quote=True)}/groups/brainlab">'
@@ -146,9 +155,6 @@ def welcome_text(access: dict, group_url: str = "") -> str:
         "данными)\n"
         "\nКлюч для git не пересылайте. Получить заново или отозвать — /mcp."
     )
-    if group_url:
-        text += (f'\n<a href="{html.escape(group_url, quote=True)}">Группа тестирования и '
-                 "обратной связи</a>")
     return text
 
 
@@ -167,7 +173,7 @@ async def submit_application(message: Message, bot: Bot, service: McpAccessServi
         )
         return
     notified = False
-    for admin_id in service.admins:
+    for admin_id in service.approvers():
         try:
             await bot.send_message(admin_id, request_text(row), reply_markup=actions(row["request_id"], row["requested_role"]))
             notified = True
@@ -201,17 +207,17 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
 
     @router.message(Command("mcp_requests"))
     async def pending(message: Message) -> None:
-        if message.from_user.id not in service.admins:
+        if not service.can_approve(message.from_user.id):
             return
         rows = await asyncio.to_thread(service.pending, message.from_user.id)
         if not rows:
             await message.answer("Необработанных заявок MCP нет.")
         for row in rows:
-            await message.answer(request_text(row), reply_markup=actions(row["request_id"], row.get("approved_role") or row.get("requested_role") or "member"))
+            await message.answer(request_text(row), reply_markup=actions(row["request_id"], row.get("approved_role") or row.get("requested_role") or "guest"))
 
     @router.message(Command("mcp_revoke"))
     async def admin_revoke(message: Message) -> None:
-        if message.from_user.id not in service.admins:
+        if not service.can_approve(message.from_user.id):
             return
         parts = (message.text or "").split()
         if len(parts) != 2 or not parts[1].isdigit():
@@ -299,7 +305,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
 
     @router.callback_query(F.data.startswith("mcp:roles:"))
     async def choose_role(callback: CallbackQuery) -> None:
-        if callback.from_user.id not in service.admins:
+        if not service.can_approve(callback.from_user.id):
             await callback.answer("Недостаточно прав.", show_alert=True)
             return
         await callback.answer()
@@ -315,7 +321,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
     @router.callback_query(F.data.startswith("mcp:approve:"))
     @router.callback_query(F.data.startswith("mcp:reject:"))
     async def decide(callback: CallbackQuery, bot: Bot) -> None:
-        if callback.from_user.id not in service.admins:
+        if not service.can_approve(callback.from_user.id):
             await callback.answer("Недостаточно прав.", show_alert=True)
             return
         parts = callback.data.split(":")

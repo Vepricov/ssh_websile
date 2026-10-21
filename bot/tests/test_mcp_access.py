@@ -33,8 +33,21 @@ def test_approval_is_required_and_retry_keeps_the_same_identity_and_secret(tmp_p
     assert first["token"] == second["token"]
     assert len(bridge.calls) == 1
     assert first["telegram_user_id"] == 42
-    assert first["role"] == "member"
+    assert first["role"] == "guest"
     assert first["token"].encode() not in storage.path.read_bytes()
+
+
+def test_redelivery_of_a_grant_stored_under_a_former_role_name(tmp_path):
+    storage = Storage(tmp_path / "bot.sqlite3", b"a" * 32)
+    service = McpAccessService(storage, Bridge(), frozenset({1}))
+    request = service.request(42, "Alice", "Literature")
+    service.approve(1, request["request_id"])
+    with storage._connect() as db:
+        db.execute("UPDATE mcp_requests SET approved_role='member', status='delivered', "
+                   "account=json_set(account, '$.role', 'member') WHERE request_id=?",
+                   (request["request_id"],))
+    access = service.approve(1, request["request_id"])
+    assert access["role"] == "guest"
 
 
 def test_failed_remote_reply_can_be_retried_after_restart(tmp_path):
@@ -98,7 +111,7 @@ def test_ssh_transports_secret_only_on_stdin(monkeypatch):
 
     def run(args, **kwargs):
         seen.append((args, kwargs))
-        return CompletedProcess(args, 0, '{"role":"member","email":"telegram-42@users.brainlab-ai.com","user_id":"user-42","telegram_user_id":42}', "")
+        return CompletedProcess(args, 0, '{"role":"guest","email":"telegram-42@users.brainlab-ai.com","user_id":"user-42","telegram_user_id":42}', "")
 
     monkeypatch.setattr("server_access_bot.mcp_access.subprocess.run", run)
     McpBridge().issue(42, token)
@@ -177,7 +190,7 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
         notices = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1]
         assert len(notices) == 1
         assert "Alice" in notices[0].text and "42" in notices[0].text
-        assert any(b.callback_data == f"mcp:grant:member:{row['request_id']}"
+        assert any(b.callback_data == f"mcp:grant:guest:{row['request_id']}"
                    for line in notices[0].reply_markup.inline_keyboard for b in line)
         await dispatcher.feed_update(bot, Update(update_id=6, callback_query=callback(42, "mcp:request")))
         assert service.get(42)["request_id"] == row["request_id"]
@@ -188,12 +201,12 @@ def test_bot_routes_request_approval_and_protected_delivery(tmp_path, notificati
                        for x in telegram.sent)
             await dispatcher.feed_update(bot, Update(update_id=7, message=message(1, "/mcp_requests")))
             recovered = [x for x in telegram.sent if isinstance(x, SendMessage) and x.chat_id == 1][-1]
-            assert any(b.callback_data == f"mcp:grant:member:{row['request_id']}"
+            assert any(b.callback_data == f"mcp:grant:guest:{row['request_id']}"
                        for line in recovered.reply_markup.inline_keyboard for b in line)
 
-        await dispatcher.feed_update(bot, Update(update_id=3, callback_query=callback(43, f"mcp:grant:member:{row['request_id']}")))
+        await dispatcher.feed_update(bot, Update(update_id=3, callback_query=callback(43, f"mcp:grant:guest:{row['request_id']}")))
         assert bridge.calls == []
-        await dispatcher.feed_update(bot, Update(update_id=4, callback_query=callback(1, f"mcp:grant:member:{row['request_id']}")))
+        await dispatcher.feed_update(bot, Update(update_id=4, callback_query=callback(1, f"mcp:grant:guest:{row['request_id']}")))
         assert service.get(42)["status"] == "delivered"
         delivery = next(x for x in telegram.sent if isinstance(x, SendMessage) and "Доступ в базу знания лаборатории выдан" in x.text)
         assert delivery.chat_id == 42

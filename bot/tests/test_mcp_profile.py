@@ -19,7 +19,7 @@ def test_application_uses_telegram_identity_and_the_server_profile_fields():
     assert result["profile"].full_name == "Alice Smith"
     assert result["profile"].recommender == "Professor"
     assert result["username"] == "alice"
-    assert result["requested_role"] == "manager"
+    assert result["requested_role"] == "developer"
     with pytest.raises(ValueError):
         parse_application(user, json.dumps({**payload, "requested_role": "administrator"}))
 
@@ -41,10 +41,10 @@ def test_requested_role_is_not_a_grant_and_approver_can_choose_another(tmp_path)
     assert bridge.calls == []
     with pytest.raises(PermissionError):
         service.approve(42, row["request_id"], "lead")
-    access = service.approve(1, row["request_id"], "manager")
-    assert access["role"] == "manager"
+    access = service.approve(1, row["request_id"], "developer")
+    assert access["role"] == "developer"
     assert access["username"] == "alice"
-    assert service.get(42)["approved_role"] == "manager"
+    assert service.get(42)["approved_role"] == "developer"
     with pytest.raises(ValueError):
         service.approve(1, row["request_id"], "lead")
 
@@ -58,15 +58,15 @@ def test_existing_member_can_request_a_role_without_losing_current_access(tmp_pa
     first = service.request(42, "Alice Smith", username="alice")
     access = service.approve(1, first["request_id"])
     service.delivered(first["request_id"])
-    change = service.request(42, "Alice Smith", username="alice", requested_role="manager")
+    change = service.request(42, "Alice Smith", username="alice", requested_role="developer")
     assert change["status"] == "pending"
     assert change["request_id"] != first["request_id"]
     with pytest.raises(PermissionError):
-        service.approve(42, change["request_id"], "manager")
+        service.approve(42, change["request_id"], "developer")
     service.reject(1, change["request_id"])
     assert service.get(42)["status"] == "delivered"
     assert service.approve(1, change["request_id"])["token"] == access["token"]
-    change = service.request(42, "Alice Smith", username="alice", requested_role="manager")
-    upgraded = service.approve(1, change["request_id"], "manager")
+    change = service.request(42, "Alice Smith", username="alice", requested_role="developer")
+    upgraded = service.approve(1, change["request_id"], "developer")
     assert upgraded["token"] == access["token"]
-    assert upgraded["role"] == "manager"
+    assert upgraded["role"] == "developer"
