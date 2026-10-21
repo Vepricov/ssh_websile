@@ -96,11 +96,11 @@ def test_yandex_is_not_a_monitored_server() -> None:
     assert "yandex" not in PUBLIC_SERVER_NAMES
 
 
-def test_server_status_shows_alibaba_ppu_allocation() -> None:
+def test_server_status_shows_alibaba_pool_gpu_and_shard_allocation() -> None:
     def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
         assert host == "alibaba_ascend"
         assert command == GpuStatusScanner.ALIBABA_QUERY
-        return 0, "10|9|up|mix\n"
+        return 0, "8|2|16|8|up|mix\n"
 
     statuses = GpuStatusScanner(
         hosts=("alibaba_ascend",), runner=runner
@@ -108,8 +108,22 @@ def test_server_status_shows_alibaba_ppu_allocation() -> None:
     text = format_gpu_status(statuses)
 
     assert "🟢 <b>Alibaba</b>" in text
-    assert "PPU █████ 9/10 занято (90%)" in text
-    assert "Slurm partition: brain · состояние: mix" in text
+    assert "GPU   ██░░░ 2/8 занято (25%)" in text
+    assert "шарды ███░░ 8/16 занято (50%)" in text
+    assert "Slurm partition: labs-pool · состояние: mix" in text
+
+
+def test_alibaba_summary_omits_shard_line_when_no_shards() -> None:
+    def runner(host: str, command: tuple[str, ...]) -> tuple[int, str]:
+        return 0, "8|2|0|0|up|mix\n"
+
+    statuses = GpuStatusScanner(
+        hosts=("alibaba_ascend",), runner=runner
+    ).scan()
+    text = format_gpu_status(statuses)
+
+    assert "GPU   ██░░░ 2/8 занято (25%)" in text
+    assert "шарды" not in text
 
 
 def test_idle_incident_requires_full_duration_and_has_durable_cooldown(
