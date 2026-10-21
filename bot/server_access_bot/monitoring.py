@@ -320,16 +320,26 @@ class GpuFleetScanner:
 
 class GpuStatusScanner:
     GPU_QUERY = GpuFleetScanner.GPU_QUERY
+    # 21-10-2026: Alibaba переехал на объединённый узел. Партиция brain → labs-pool,
+    # GRES gpu:brain → gpu:pool (доля лаборатории; gpu:corp — другой арендатор) плюс
+    # шарды shard:pool. Новый Slurm отдаёт squeue -o %b с префиксом gres/, поэтому
+    # суммируем по последнему полю ($NF), а не по фиксированной позиции.
     ALIBABA_QUERY = (
         "/bin/sh",
         "-lc",
-        "capacity=$(sinfo -h -p brain -o '%G' | head -n 1 | "
-        "grep -o 'gpu:brain:[0-9]*' | cut -d: -f3); "
-        "allocated=$(squeue -h -p brain -t RUNNING -o '%b' | "
-        "awk -F: '$1 == \"gpu\" && $2 == \"brain\" {sum += $3} "
-        "END {print sum + 0}'); "
-        "state=$(sinfo -h -p brain -o '%a|%t' | head -n 1); "
-        "printf '%s|%s|%s\\n' \"$capacity\" \"$allocated\" \"$state\"",
+        "part=labs-pool; "
+        "caps=$(sinfo -h -p \"$part\" -o '%G' | head -n 1); "
+        "gpu_cap=$(printf '%s' \"$caps\" | grep -o 'gpu:pool:[0-9]*' | "
+        "head -n 1 | cut -d: -f3); "
+        "shard_cap=$(printf '%s' \"$caps\" | grep -o 'shard:pool:[0-9]*' | "
+        "head -n 1 | cut -d: -f3); "
+        "gpu_alloc=$(squeue -h -p \"$part\" -t RUNNING -o '%b' | tr ',' '\\n' | "
+        "awk -F: '/gpu:pool:/ {sum += $NF} END {print sum + 0}'); "
+        "shard_alloc=$(squeue -h -p \"$part\" -t RUNNING -o '%b' | tr ',' '\\n' | "
+        "awk -F: '/shard:/ {sum += $NF} END {print sum + 0}'); "
+        "state=$(sinfo -h -p \"$part\" -o '%a|%t' | head -n 1); "
+        "printf '%s|%s|%s|%s|%s\\n' "
+        "\"$gpu_cap\" \"$gpu_alloc\" \"$shard_cap\" \"$shard_alloc\" \"$state\"",
     )
 
     def __init__(
@@ -386,21 +396,33 @@ class GpuStatusScanner:
     @staticmethod
     def _parse_alibaba_summary(text: str) -> str | None:
         parts = text.strip().split("|")
-        if len(parts) != 4:
+        if len(parts) != 6:
             return None
-        total = GpuFleetScanner._non_negative_integer(parts[0])
-        allocated = GpuFleetScanner._non_negative_integer(parts[1])
-        if total is None or allocated is None or total == 0 or allocated > total:
+        gpu_total = GpuFleetScanner._non_negative_integer(parts[0])
+        gpu_alloc = GpuFleetScanner._non_negative_integer(parts[1])
+        shard_total = GpuFleetScanner._non_negative_integer(parts[2])
+        shard_alloc = GpuFleetScanner._non_negative_integer(parts[3])
+        if (
+            gpu_total is None
+            or gpu_alloc is None
+            or gpu_total == 0
+            or gpu_alloc > gpu_total
+        ):
             return None
-        percent = round(100 * allocated / total)
-        filled = min(5, (percent + 19) // 20)
-        bar = "█" * filled + "░" * (5 - filled)
-        availability = parts[2].strip()
-        state = parts[3].strip()
-        return (
-            f"PPU {bar} {allocated}/{total} занято ({percent}%)\n"
-            f"Slurm partition: brain · состояние: {state or availability}"
-        )
+        availability = parts[4].strip()
+        state = parts[5].strip()
+
+        def line(label: str, allocated: int, total: int) -> str:
+            percent = round(100 * allocated / total)
+            filled = min(5, (percent + 19) // 20)
+            bar = "█" * filled + "░" * (5 - filled)
+            return f"{label} {bar} {allocated}/{total} занято ({percent}%)"
+
+        lines = [line("GPU  ", gpu_alloc, gpu_total)]
+        if shard_total and shard_alloc is not None and shard_alloc <= shard_total:
+            lines.append(line("шарды", shard_alloc, shard_total))
+        lines.append(f"Slurm partition: labs-pool · состояние: {state or availability}")
+        return "\n".join(lines)
 
     @staticmethod
     def _parse_devices(text: str) -> tuple[GpuDeviceStatus, ...]:
