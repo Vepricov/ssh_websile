@@ -460,11 +460,9 @@ def request_requires_admin(
     user_is_known: bool,
     mlsub_is_missing: bool = True,
 ) -> bool:
-    return (
-        not user_is_known
-        or (mlsub_is_missing and "mlsub" in application.servers)
-        or any(host in application.servers for host in SEPARATE_APPROVAL_HOSTS)
-    )
+    # Все серверные доступы — только после одобрения (владелец или лид).
+    # Самообслуживание known-пользователей закрыто 24-10-2026.
+    return True
 
 
 def split_external_application(application: Application) -> list[Application]:
@@ -935,6 +933,10 @@ def build_router(
 ) -> Router:
     router = Router()
 
+    def server_approvers() -> frozenset[int]:
+        # Любую серверную заявку одобряет владелец или лид лаборатории.
+        return admin_user_ids | лиды_из_кеша()
+
     async def access_form_context(
         telegram_user_id: int,
     ) -> tuple[str | None, tuple[str, ...]]:
@@ -1173,7 +1175,7 @@ def build_router(
                 message.chat.id, message.from_user, application, bot
             )
             return
-        if not admin_user_ids:
+        if not server_approvers():
             await message.answer(
                 "Новые заявки временно не принимаются: администратор не настроен.",
                 reply_markup=await personalized_main_menu(message.from_user.id),
@@ -1212,7 +1214,7 @@ def build_router(
                 reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
-        for admin_id in admin_user_ids:
+        for admin_id in server_approvers():
             try:
                 await bot.send_message(
                     admin_id,
@@ -1510,7 +1512,7 @@ def build_router(
 
     @router.callback_query(F.data.startswith("admin:ascend:grant:"))
     async def confirm_ascend_access(callback: CallbackQuery, bot: Bot) -> None:
-        if callback.from_user.id not in admin_user_ids:
+        if callback.from_user.id not in server_approvers():
             await callback.answer("Недостаточно прав.", show_alert=True)
             return
         request_id = (callback.data or "").rsplit(":", 1)[-1]
@@ -1577,7 +1579,7 @@ def build_router(
 
     @router.callback_query(F.data.startswith("admin:approve:"))
     async def approve_new_user(callback: CallbackQuery, bot: Bot) -> None:
-        if callback.from_user.id not in admin_user_ids:
+        if callback.from_user.id not in server_approvers():
             await callback.answer("Недостаточно прав.", show_alert=True)
             return
         request_id = (callback.data or "").rsplit(":", 1)[-1]
@@ -1615,7 +1617,7 @@ def build_router(
 
     @router.callback_query(F.data.startswith("admin:reject:"))
     async def reject_new_user(callback: CallbackQuery, bot: Bot) -> None:
-        if callback.from_user.id not in admin_user_ids:
+        if callback.from_user.id not in server_approvers():
             await callback.answer("Недостаточно прав.", show_alert=True)
             return
         request_id = (callback.data or "").rsplit(":", 1)[-1]
