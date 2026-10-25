@@ -158,6 +158,20 @@ def welcome_text(access: dict, group_url: str = "") -> str:
     return text
 
 
+def password_text(access: dict) -> str:
+    """Новый пароль: адрес входа, логин и пароль в спойлере, как при первой выдаче."""
+    site = (access.get("site_url") or "").rstrip("/")
+    return (
+        "<b>Новый пароль для базы знания лаборатории</b>\n\n"
+        f'Вход: <a href="{html.escape(site, quote=True)}/users/sign_in">{html.escape(site)}</a>\n'
+        f"Логин: <code>{html.escape(access.get('site_login') or '')}</code>\n"
+        f"Временный пароль: <tg-spoiler><code>{html.escape(access.get('site_password') or '')}"
+        "</code></tg-spoiler>\n\n"
+        "После входа GitLab попросит сменить его на свой. Забудете и этот — снова кнопка "
+        "«🔑 Сбросить пароль GitLab» в /mcp."
+    )
+
+
 async def submit_application(message: Message, bot: Bot, service: McpAccessService, data: dict) -> None:
     profile = data["profile"]
     row = await asyncio.to_thread(
@@ -250,6 +264,8 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
                     InlineKeyboardButton(text="Отозвать ключ", callback_data="mcp:revoke"),
                 ], [
                     InlineKeyboardButton(text="📂 Доступ к работам", callback_data="wa:start"),
+                ], [
+                    InlineKeyboardButton(text="🔑 Сбросить пароль GitLab", callback_data="mcp:password"),
                 ]]),
             )
             return
@@ -365,6 +381,33 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
         # The saved approver is used only for redelivery of an already issued key.
         access = await asyncio.to_thread(service.approve, row["approved_by"], row["request_id"])
         await deliver(bot, access)
+
+    @router.callback_query(F.data == "mcp:password")
+    async def confirm_password(callback: CallbackQuery) -> None:
+        await callback.answer()
+        await callback.message.answer(
+            "Задать новый временный пароль для входа в базу? Прежний перестанет работать. "
+            "Письмо через «Forgot password» не придёт: у учётки служебная почта, поэтому "
+            "сброс только здесь.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Да, новый пароль", callback_data="mcp:password-confirm"),
+            ]]),
+        )
+
+    @router.callback_query(F.data == "mcp:password-confirm")
+    async def reset_password(callback: CallbackQuery, bot: Bot) -> None:
+        await callback.answer("Задаю…")
+        try:
+            access = await asyncio.to_thread(service.reset_password, callback.from_user.id)
+        except ValueError as error:
+            await callback.message.answer(html.escape(str(error)))
+            return
+        except Exception as error:
+            LOGGER.error("GitLab password reset failed: %s: %s", type(error).__name__, error)
+            await callback.message.answer("Пароль не сброшен. Попробуйте ещё раз чуть позже.")
+            return
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await bot.send_message(callback.from_user.id, password_text(access), protect_content=True)
 
     @router.callback_query(F.data == "mcp:revoke")
     async def confirm_revoke(callback: CallbackQuery) -> None:

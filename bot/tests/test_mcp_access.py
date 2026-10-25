@@ -230,3 +230,36 @@ def test_simultaneous_button_requests_create_one_application(tmp_path):
     assert sum(row["created"] for row in requests) == 1
     assert len(service.pending(1)) == 1
     assert service.get(42)["purpose"] == ""
+
+
+class PasswordBridge(Bridge):
+    def password(self, user_id, role="guest"):
+        self.calls.append(("password", user_id, role))
+        return {"email": f"telegram-{user_id}@users.brainlab-ai.com", "role": role,
+                "site_login": "alice", "site_password": "new-secret",
+                "site_url": "https://lab.example"}
+
+
+def test_password_reset_only_for_own_granted_access(tmp_path):
+    storage = Storage(tmp_path / "bot.sqlite3", b"a" * 32)
+    bridge = PasswordBridge()
+    service = McpAccessService(storage, bridge, frozenset({1}))
+    request = service.request(42, "Alice", "Literature")
+    with pytest.raises(ValueError):          # не одобрен — сбрасывать нечего
+        service.reset_password(42)
+    service.approve(1, request["request_id"])
+    with storage._connect() as db:            # роль под прежним именем
+        db.execute("UPDATE mcp_requests SET approved_role='member' WHERE telegram_user_id=42")
+    access = service.reset_password(42)
+    assert access["site_password"] == "new-secret"
+    assert bridge.calls[-1] == ("password", 42, "guest")
+    with pytest.raises(ValueError):          # у незнакомца входа нет
+        service.reset_password(7)
+
+
+def test_password_message_hides_password_in_spoiler():
+    from server_access_bot.mcp_router import password_text
+    text = password_text({"site_url": "https://lab.example", "site_login": "alice",
+                          "site_password": "p<w"})
+    assert "<tg-spoiler><code>p&lt;w</code></tg-spoiler>" in text
+    assert "https://lab.example/users/sign_in" in text

@@ -54,6 +54,9 @@ class McpBridge:
     def revoke(self, user_id: int) -> dict:
         return self._call("revoke", user_id)
 
+    def password(self, user_id: int, role: str = "guest") -> dict:
+        return self._call("password", user_id, role=role)
+
 
 class McpAccessService:
     """Приём в лабораторию: решает владелец или любой лид.
@@ -246,6 +249,25 @@ class McpAccessService:
             raise ValueError("Заявка уже обработана. Для выданного ключа нужен отзыв.")
         self.storage.record_event(row[0], "mcp.rejected", detail=f"{request_id}; approver={admin_id}")
         return row[0]
+
+    def reset_password(self, user_id: int) -> dict:
+        """Новый временный пароль GitLab тому, кто нажал кнопку, и только ему.
+
+        Почта у учёток подставная, «Forgot password» письма не шлёт, и забывший пароль
+        оставался без входа до ручного сброса владельцем (Арман Болатов, 21-10 и
+        25-10-2026). Сбросить можно только свой вход: скрипт на сервере базы ищет учётку
+        по телеграму нажавшего.
+        """
+        row = self.get(user_id)
+        if not row or row["status"] not in {"granted", "delivered"}:
+            raise ValueError("Входа в базу у вас нет. Заявка: /mcp.")
+        role = row.get("approved_role") or row.get("requested_role") or "guest"
+        role = PREZHNIE.get(role, role)
+        result = self.bridge.password(user_id, role)
+        if not result.get("site_password") or not result.get("site_login"):
+            raise RuntimeError("Пароль не задан")
+        self.storage.record_event(user_id, "gitlab.password_reset", detail="self")
+        return result
 
     def revoke(self, actor_id: int, user_id: int) -> None:
         if actor_id != user_id:
