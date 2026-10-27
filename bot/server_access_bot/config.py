@@ -12,6 +12,7 @@ class Settings:
     google_service_account_file: Path
     spreadsheet_id: str
     sheet_id: int
+    ipa_admin_password: str = ""
     ascend_group_url: str = ""
     alibaba_requests_open: bool = True
     closed_servers: frozenset[str] = frozenset()
@@ -64,6 +65,7 @@ class Settings:
                 "1S_0e24zqR_vadGb6GpJhL_BxY8Vw9pLudT-GEiwmqP8",
             ),
             sheet_id=int(os.environ.get("GOOGLE_SHEET_ID", "1269070972")),
+            ipa_admin_password=os.environ.get("IPA_ADMIN_PASSWORD", ""),
             ascend_group_url=os.environ.get("ASCEND_GROUP_URL", "").strip(),
             alibaba_requests_open=os.environ.get(
                 "ALIBABA_REQUESTS_OPEN", "true"

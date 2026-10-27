@@ -22,6 +22,8 @@ class Provisioner(Protocol):
 
     def acknowledge(self, host: str, username: str, *, owner_id: int) -> None: ...
 
+    def reset_ipavlov_password(self, username: str) -> str: ...
+
 
 class ValidationError(ValueError):
     pass
@@ -29,6 +31,7 @@ class ValidationError(ValueError):
 
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 ALIBABA_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
+IPAVLOV_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 ALLOWED_HOSTS = frozenset(
     {
         "shkodnik_opt",
@@ -37,6 +40,7 @@ ALLOWED_HOSTS = frozenset(
         "2_a100_brain",
         "mlsub",
         "alibaba_ascend",
+        "ipavlov",
     }
 )
 MOSCOW_TIME = ZoneInfo("Europe/Moscow")
@@ -200,6 +204,14 @@ class AccessService:
                 "и начинаться со строчной латинской буквы."
             )
         if (
+            "ipavlov" in application.servers
+            and not IPAVLOV_USERNAME_RE.fullmatch(application.server_username)
+        ):
+            raise ValidationError(
+                "Для ipavlov серверный ник должен содержать от 2 до 32 символов "
+                "и начинаться со строчной латинской буквы."
+            )
+        if (
             "alibaba_ascend" in application.servers
             and len(application.full_name) > 64
         ):
@@ -256,7 +268,14 @@ class AccessService:
         self.storage.save_application(application)
         result = []
         for host in missing_hosts:
-            access = self.provisioner.provision(host, application.server_username)
+            # full_name/owner_id are only consumed by hosts that create a named
+            # account (ipavlov FreeIPA); the others ignore them.
+            access = self.provisioner.provision(
+                host,
+                application.server_username,
+                full_name=application.full_name,
+                owner_id=application.telegram_user_id,
+            )
             self.storage.save_access(application.telegram_user_id, access)
             self.storage.record_event(
                 application.telegram_user_id,
