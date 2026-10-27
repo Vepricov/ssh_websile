@@ -308,7 +308,8 @@ def test_mlsub_always_requires_separate_admin_approval() -> None:
     )
 
     assert request_requires_admin(application, user_is_known=True)
-    assert not request_requires_admin(
+    # Политика с 24-10-2026: одобрение нужно всегда, даже если mlsub уже выдан.
+    assert request_requires_admin(
         application, user_is_known=True, mlsub_is_missing=False
     )
 
@@ -329,7 +330,7 @@ def test_ascend_always_requires_manual_admin_flow() -> None:
     assert request_requires_admin(application, user_is_known=True)
 
 
-def test_known_user_can_still_add_managed_server_without_second_approval() -> None:
+def test_known_user_adding_managed_server_now_requires_approval() -> None:
     application = application_from_request(
         Profile(101, "alice_tg", "Alice Smith", "Bob Jones"),
         ServerRequest(
@@ -342,7 +343,8 @@ def test_known_user_can_still_add_managed_server_without_second_approval() -> No
         ),
     )
 
-    assert not request_requires_admin(application, user_is_known=True)
+    # Самообслуживание known-пользователей закрыто 24-10-2026: одобрение нужно всем.
+    assert request_requires_admin(application, user_is_known=True)
     assert request_requires_admin(application, user_is_known=False)
 
 
@@ -366,7 +368,7 @@ def test_two_a100_always_requires_admin_and_travels_alone() -> None:
         ("2_a100_brain",),
         ("alibaba_ascend",),
     ]
-    assert not request_requires_admin(parts[0], user_is_known=True)
+    assert request_requires_admin(parts[0], user_is_known=True)
     assert request_requires_admin(parts[1], user_is_known=True)
     assert request_requires_admin(parts[2], user_is_known=True)
 
