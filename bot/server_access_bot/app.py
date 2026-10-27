@@ -109,6 +109,18 @@ MIPT_NETWORK_NOTE = (
     "Сервер во внутренней сети МФТИ: подключайтесь из сети МФТИ или через VPN МФТИ. "
     "Выхода в интернет у сервера нет, пакеты и модели копируйте через scp или rsync."
 )
+IPAVLOV_NOTE = (
+    "<b>Как начать работу на ipavlov</b>\n"
+    "1. Смените временный пароль: войдите на "
+    '<a href="https://ipa.ipavlov.mipt.ru">https://ipa.ipavlov.mipt.ru</a> '
+    "логином и временным паролем выше и задайте постоянный.\n"
+    "2. Подключение (нужен тот же VPN, что и для H200):\n"
+    "<code>ssh -J {user}@10.0.116.11:30018 {user}@gpu12.ipavlov.mipt.ru</code>\n"
+    "3. Запускайте всё только через <code>gpu-run</code>, например:\n"
+    "<code>gpu-run status</code>\n"
+    "<code>gpu-run --gpu 1 --slots 1 -- python train.py</code>\n"
+    "Эта учётка — общий пул, одна на весь хаб."
+)
 ALIBABA_VPN_NOTE = (
     "<b>VPN для Alibaba</b>\n"
     "Для подключения нужен тот же VPN, что и для H200. Если он уже настроен, "
@@ -126,6 +138,7 @@ SERVER_NAMES = {
     "brain_lab": "Новый сервер (BrainLab)",
     "vv_h200": "H200 (VV)",
     "2_a100_brain": "2 × A100 (BrainLab)",
+    "ipavlov": "ipavlov / общий пул",
 }
 SERVICE_NAMES = {
     "mlsub": "mlsub / Cloud.ru",
@@ -375,6 +388,15 @@ def server_dashboard_keyboard(
         for host, name in {**SERVER_NAMES, **SERVICE_NAMES}.items()
         if host not in existing and (host != "mlsub" or "brain_lab" in existing)
     ]
+    if "ipavlov" in existing:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔑 Сбросить пароль ipavlov",
+                    callback_data="ipavlov:reset",
+                )
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
@@ -698,6 +720,10 @@ def demo_accesses(
         "brain_lab": f"ssh -p 10210 {username}@proxy2.cod.phystech.edu",
         "vv_h200": f"ssh -p 30018 {username}@10.0.116.11",
         "2_a100_brain": f"ssh {username}@10.55.230.46",
+        "ipavlov": (
+            f"ssh -J {username}@10.0.116.11:30018 "
+            f"{username}@gpu12.ipavlov.mipt.ru"
+        ),
         "mlsub": "mlsub run --repo <https git> --entry train.py --gpus 1",
         "alibaba_ascend": "",
     }
@@ -721,6 +747,12 @@ def demo_accesses(
 def available_servers_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🚀 ipavlov / общий пул",
+                    callback_data="catalog:ipavlov",
+                )
+            ],
             [
                 InlineKeyboardButton(
                     text="☁️ mlsub / Cloud.ru", callback_data="catalog:mlsub"
@@ -848,6 +880,8 @@ def server_dashboard_text(
             lines.append(VPN_NOTE)
         if access.host == "2_a100_brain":
             lines.append(MIPT_NETWORK_NOTE)
+        if access.host == "ipavlov":
+            lines.append(IPAVLOV_NOTE.format(user=access.username))
         sections.append("\n".join(lines))
     mlsub = by_host.get("mlsub")
     if mlsub is not None:
@@ -1965,6 +1999,85 @@ def build_router(
         removed = await asyncio.to_thread(service.storage.unbind_server_chat, host)
         await message.answer("Привязка удалена." if removed else "Привязки не было.")
 
+    @router.callback_query(F.data == "catalog:ipavlov")
+    async def ipavlov_catalog(callback: CallbackQuery, state: FSMContext) -> None:
+        if (
+            callback.message is None
+            or callback.message.chat.type != ChatType.PRIVATE
+        ):
+            await callback.answer(
+                "Заявки оформляются в личном чате с ботом.", show_alert=True
+            )
+            return
+        await state.clear()
+        await callback.answer()
+        await callback.message.answer(
+            "<b>ipavlov / общий пул</b>\n\n"
+            "Одна учётка FreeIPA на весь хаб: она сразу имеет доступ и к узлам "
+            "ipavlov (gpu12 и др.), и к H200 (VV). Бот заводит её сам после "
+            "одобрения — логин, временный пароль и инструкцию пришлёт в личку.\n\n"
+            "Нужен тот же VPN, что и для H200.",
+            reply_markup=await personalized_server_request_menu(
+                "ipavlov", callback.from_user.id
+            ),
+        )
+
+    @router.callback_query(F.data == "ipavlov:reset")
+    async def ipavlov_reset_confirm(callback: CallbackQuery) -> None:
+        await callback.answer()
+        if callback.message is None:
+            return
+        await callback.message.answer(
+            "Задать новый временный пароль для ipavlov? Прежний перестанет "
+            "работать, а новый нужно будет сменить при первом входе на "
+            "https://ipa.ipavlov.mipt.ru",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Да, новый пароль",
+                            callback_data="ipavlov:reset-confirm",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+    @router.callback_query(F.data == "ipavlov:reset-confirm")
+    async def ipavlov_reset(callback: CallbackQuery, bot: Bot) -> None:
+        await callback.answer("Сбрасываю…")
+        username = await asyncio.to_thread(
+            service.storage.server_username_for, callback.from_user.id
+        )
+        if not username or not await asyncio.to_thread(
+            service.storage.has_access, callback.from_user.id, "ipavlov"
+        ):
+            if callback.message is not None:
+                await callback.message.answer(
+                    "У вас нет аккаунта ipavlov — сбрасывать нечего."
+                )
+            return
+        try:
+            password = await asyncio.to_thread(
+                service.provisioner.reset_ipavlov_password, username
+            )
+        except ProvisioningError as error:
+            LOGGER.error("ipavlov password reset failed: %s", error)
+            if callback.message is not None:
+                await callback.message.answer(
+                    "Пароль не сброшен. Попробуйте ещё раз чуть позже."
+                )
+            return
+        if callback.message is not None:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        await bot.send_message(
+            callback.from_user.id,
+            f"Новый временный пароль ipavlov для {username}:\n{password}\n\n"
+            "Смените его при первом входе на https://ipa.ipavlov.mipt.ru",
+            protect_content=True,
+            parse_mode=None,
+        )
+
     @router.callback_query(F.data == "catalog:mlsub")
     async def mlsub_catalog(callback: CallbackQuery, state: FSMContext) -> None:
         await state.clear()
@@ -2114,7 +2227,7 @@ async def run(settings: Settings) -> None:
     storage = Storage(settings.database_path, settings.encryption_key)
     service = AccessService(
         storage,
-        SshProvisioner(),
+        SshProvisioner(ipa_password=settings.ipa_admin_password),
         ascend_group_url=settings.ascend_group_url,
     )
     process_controller = GpuProcessController(

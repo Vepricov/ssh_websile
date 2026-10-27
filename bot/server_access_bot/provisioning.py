@@ -18,6 +18,7 @@ HOSTS = frozenset(
         "2_a100_brain",
         "mlsub",
         "alibaba_ascend",
+        "ipavlov",
     }
 )
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
@@ -25,6 +26,14 @@ ALIBABA_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
 ALIBABA_TARGET = "veprikov@10.0.117.197"
 ALIBABA_IDENTITY_FILE = "/root/.ssh/china_cluster_agents"
 ALIBABA_HELPER = "/home/veprikov/.local/bin/brainlab-bot-alibaba-provision"
+# ipavlov / общий пул: one FreeIPA account (group brainlab) that already has
+# HBAC access to both the VV node (ext1) and the gpu nodes. The bot reaches the
+# helper over the `gpu12` ssh alias; the FreeIPA admin password is fed on stdin.
+IPAVLOV_SSH_HOST = "gpu12"
+IPAVLOV_HELPER = "/home/andrey_veprikov/.local/bin/brainlab-ipa"
+IPAVLOV_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
+IPAVLOV_CONNECTION = "ssh -J {user}@10.0.116.11:30018 {user}@gpu12.ipavlov.mipt.ru"
+IPAVLOV_PASSWORD_RE = re.compile(r"(?m)^PASSWORD:\s*(.+)$")
 PASSWORD_LINE_RE = re.compile(r"(?im)^(\s*пароль:)\s*.*$")
 TIMESTAMP_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s*")
 SSH_OPTIONS = (
@@ -58,8 +67,19 @@ class SshProvisioner:
     def __init__(
         self,
         run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        *,
+        ipa_password: str | None = None,
     ) -> None:
         self.run = run
+        self.ipa_password = ipa_password
+
+    @staticmethod
+    def _username_re(host: str) -> re.Pattern[str]:
+        if host == "alibaba_ascend":
+            return ALIBABA_USERNAME_RE
+        if host == "ipavlov":
+            return IPAVLOV_USERNAME_RE
+        return USERNAME_RE
 
     @staticmethod
     def _target(host: str) -> list[str]:
@@ -71,16 +91,62 @@ class SshProvisioner:
                 "IdentitiesOnly=yes",
                 ALIBABA_TARGET,
             ]
+        if host == "ipavlov":
+            return [IPAVLOV_SSH_HOST]
         return ["brain_lab" if host == "mlsub" else host]
 
-    def username_available(self, host: str, username: str) -> bool:
-        username_re = (
-            ALIBABA_USERNAME_RE if host == "alibaba_ascend" else USERNAME_RE
+    def _run_ipavlov(self, arguments: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+        if not self.ipa_password:
+            raise ProvisioningError("IPA password not configured")
+        return self.run(
+            [
+                "ssh",
+                *SSH_OPTIONS,
+                *self._target("ipavlov"),
+                shlex.join([IPAVLOV_HELPER, *arguments]),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            input=f"{self.ipa_password}\n",
         )
+
+    @staticmethod
+    def _ipavlov_password(stdout: str) -> str:
+        match = IPAVLOV_PASSWORD_RE.search(stdout)
+        if not match:
+            raise ProvisioningError(
+                "ipavlov: provisioning helper omitted the password"
+            )
+        return match.group(1)
+
+    def reset_ipavlov_password(self, username: str) -> str:
+        if not IPAVLOV_USERNAME_RE.fullmatch(username):
+            raise ProvisioningError("invalid ipavlov username")
+        completed = self._run_ipavlov(["reset", username], timeout=60)
+        if completed.returncode != 0:
+            raise ProvisioningError(
+                f"ipavlov: {_helper_failure(completed.stderr, completed.returncode)}"
+            )
+        return self._ipavlov_password(completed.stdout)
+
+    def username_available(self, host: str, username: str) -> bool:
+        username_re = self._username_re(host)
         if host not in HOSTS or not username_re.fullmatch(username):
             raise ProvisioningError("invalid provisioning target")
         if host == "mlsub":
             return True
+        if host == "ipavlov":
+            completed = self._run_ipavlov(["available", username], timeout=30)
+            if completed.returncode == 0:
+                return True
+            if completed.returncode == 1:
+                return False
+            raise ProvisioningError(
+                "ipavlov: username check failed: "
+                f"{_helper_failure(completed.stderr, completed.returncode)}"
+            )
         remote_command = ["getent", "passwd", "--", username]
         if host == "alibaba_ascend":
             remote_command = [ALIBABA_HELPER, "available", username]
@@ -118,11 +184,29 @@ class SshProvisioner:
         full_name: str | None = None,
         owner_id: int | None = None,
     ) -> ProvisionedAccess:
-        username_re = (
-            ALIBABA_USERNAME_RE if host == "alibaba_ascend" else USERNAME_RE
-        )
+        username_re = self._username_re(host)
         if host not in HOSTS or not username_re.fullmatch(username):
             raise ProvisioningError("invalid provisioning target")
+        if host == "ipavlov":
+            if (
+                not full_name
+                or len(full_name) > 64
+                or any(character in full_name for character in "\r\n\0")
+            ):
+                raise ProvisioningError("invalid ipavlov application")
+            completed = self._run_ipavlov(["add", username, full_name], timeout=120)
+            if completed.returncode != 0:
+                raise ProvisioningError(
+                    f"ipavlov: {_helper_failure(completed.stderr, completed.returncode)}"
+                )
+            return ProvisionedAccess(
+                host="ipavlov",
+                username=username,
+                password=self._ipavlov_password(completed.stdout),
+                connection=IPAVLOV_CONNECTION.format(user=username),
+                group_url="",
+                created=True,
+            )
         if host == "alibaba_ascend":
             if (
                 not full_name
