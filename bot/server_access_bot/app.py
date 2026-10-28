@@ -971,6 +971,27 @@ def build_router(
         # Любую серверную заявку одобряет владелец или лид лаборатории.
         return admin_user_ids | лиды_из_кеша()
 
+    async def record_decision(
+        application: Application,
+        event: str,
+        actor: User,
+        host: str | None = None,
+    ) -> None:
+        # Кто нажал «Одобрить»/«Отклонить» — в audit, чтобы потом было видно.
+        detail = f"by={actor.id}"
+        if actor.username:
+            detail += f" @{actor.username}"
+        name = (actor.full_name or "").strip()
+        if name:
+            detail += f" ({name})"
+        await asyncio.to_thread(
+            service.storage.record_event,
+            application.telegram_user_id,
+            event,
+            host,
+            detail,
+        )
+
     async def access_form_context(
         telegram_user_id: int,
     ) -> tuple[str | None, tuple[str, ...]]:
@@ -1605,6 +1626,9 @@ def build_router(
         await asyncio.to_thread(
             service.storage.resolve_pending_request, request_id, "approved"
         )
+        await record_decision(
+            application, "request_approved", callback.from_user, "alibaba_ascend"
+        )
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
             await callback.message.answer(
@@ -1642,6 +1666,11 @@ def build_router(
             request_id,
             "approved" if success else "failed",
         )
+        await record_decision(
+            application,
+            "request_approved" if success else "request_approval_failed",
+            callback.from_user,
+        )
         if callback.message:
             await callback.message.answer(
                 "Заявка одобрена, доступы отправлены пользователю."
@@ -1663,6 +1692,9 @@ def build_router(
             return
         await asyncio.to_thread(
             service.storage.resolve_pending_request, request_id, "rejected"
+        )
+        await record_decision(
+            application, "request_rejected", callback.from_user
         )
         await bot.send_message(
             application.telegram_user_id,
