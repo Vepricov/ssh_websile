@@ -119,7 +119,8 @@ IPAVLOV_NOTE = (
     "3. Запускайте всё только через <code>gpu-run</code>, например:\n"
     "<code>gpu-run status</code>\n"
     "<code>gpu-run --gpu 1 --slots 1 -- python train.py</code>\n"
-    "Эта учётка — общий пул, одна на весь хаб."
+    "Это доступ к GPU-нодам ipavlov (gpu12) — общий пул лаборатории. "
+    "На сам H200 вход отдельным логином H200 (см. выше), VPN тот же."
 )
 ALIBABA_VPN_NOTE = (
     "<b>VPN для Alibaba</b>\n"
@@ -678,7 +679,9 @@ def available_servers_text() -> str:
         'почту <a href="https://t.me/undef1ne5">@undef1ne5</a>. '
         "Дождитесь письма от <code>helpdesk02@vkusvill.ru</code>, затем "
         "вернитесь в бот и отправьте заявку через «➕ Получить доступ». "
-        "Без VPN подключение по SSH недоступно.\n\n"
+        "Без VPN подключение по SSH недоступно. Доступ к H200 даёт и "
+        "GPU-ноды ipavlov (gpu12) — учётку общего пула бот заводит сам, "
+        "VPN тот же.\n\n"
         "<b>2 × A100 (BrainLab)</b>\n"
         "2 × A100 80 GB. Только из сети МФТИ или через VPN МФТИ, "
         "без выхода в интернет.\n\n"
@@ -747,12 +750,6 @@ def demo_accesses(
 def available_servers_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🚀 ipavlov / общий пул",
-                    callback_data="catalog:ipavlov",
-                )
-            ],
             [
                 InlineKeyboardButton(
                     text="☁️ mlsub / Cloud.ru", callback_data="catalog:mlsub"
@@ -2030,29 +2027,6 @@ def build_router(
             return
         removed = await asyncio.to_thread(service.storage.unbind_server_chat, host)
         await message.answer("Привязка удалена." if removed else "Привязки не было.")
-
-    @router.callback_query(F.data == "catalog:ipavlov")
-    async def ipavlov_catalog(callback: CallbackQuery, state: FSMContext) -> None:
-        if (
-            callback.message is None
-            or callback.message.chat.type != ChatType.PRIVATE
-        ):
-            await callback.answer(
-                "Заявки оформляются в личном чате с ботом.", show_alert=True
-            )
-            return
-        await state.clear()
-        await callback.answer()
-        await callback.message.answer(
-            "<b>ipavlov / общий пул</b>\n\n"
-            "Одна учётка FreeIPA на весь хаб: она сразу имеет доступ и к узлам "
-            "ipavlov (gpu12 и др.), и к H200 (VV). Бот заводит её сам после "
-            "одобрения — логин, временный пароль и инструкцию пришлёт в личку.\n\n"
-            "Нужен тот же VPN, что и для H200.",
-            reply_markup=await personalized_server_request_menu(
-                "ipavlov", callback.from_user.id
-            ),
-        )
 
     @router.callback_query(F.data == "ipavlov:reset")
     async def ipavlov_reset_confirm(callback: CallbackQuery) -> None:

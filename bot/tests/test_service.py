@@ -741,3 +741,57 @@ def test_existing_unowned_username_is_rejected_before_any_creation(
 
     assert provisioner.calls == []
     assert storage.server_username_for(101) is None
+
+
+def _h200_application(server_username: str = "alice") -> Application:
+    return Application(
+        telegram_user_id=101,
+        telegram_username="alice_tg",
+        full_name="Alice Smith",
+        server_username=server_username,
+        access_term="бессрочно",
+        recommender="Bob Jones",
+        activity="fine-tuning",
+        servers=("vv_h200",),
+    )
+
+
+def test_h200_access_bundles_the_ipavlov_pool_account(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    provisioner = FakeProvisioner()
+    service = AccessService(storage, provisioner)
+
+    result = service.submit(_h200_application())
+
+    assert [access.host for access in result] == ["vv_h200", "ipavlov"]
+    assert provisioner.calls == [("vv_h200", "alice"), ("ipavlov", "alice")]
+    assert storage.has_access(101, "ipavlov")
+    # a repeat request re-provisions neither H200 nor the bundled ipavlov account
+    assert service.submit(_h200_application()) == []
+
+
+def test_h200_bundle_is_best_effort_and_never_blocks_the_grant(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    provisioner = FakeProvisioner()
+    provisioner.unavailable.add(("ipavlov", "alice"))
+    service = AccessService(storage, provisioner)
+
+    result = service.submit(_h200_application())
+
+    assert [access.host for access in result] == ["vv_h200"]
+    assert provisioner.calls == [("vv_h200", "alice")]
+    assert storage.has_access(101, "vv_h200")
+    assert not storage.has_access(101, "ipavlov")
+
+
+def test_h200_bundle_skipped_when_username_invalid_for_ipavlov(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    provisioner = FakeProvisioner()
+    service = AccessService(storage, provisioner)
+
+    # "_alice" is a valid Unix name but not a valid ipavlov/FreeIPA uid.
+    result = service.submit(_h200_application("_alice"))
+
+    assert [access.host for access in result] == ["vv_h200"]
+    assert provisioner.calls == [("vv_h200", "_alice")]
+    assert not storage.has_access(101, "ipavlov")

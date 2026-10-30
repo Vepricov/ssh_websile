@@ -283,7 +283,59 @@ class AccessService:
                 host,
             )
             result.append(access)
+        self._bundle_ipavlov_with_h200(application, requested_hosts, result)
         return result
+
+    def _bundle_ipavlov_with_h200(
+        self,
+        application: Application,
+        requested_hosts: list[str],
+        result: list[ProvisionedAccess],
+    ) -> None:
+        """H200 (VV) access comes with the ipavlov pool account (gpu12): same
+        VPN, one username. Provisioned best-effort so a flaky gpu12 jump never
+        blocks the H200 grant; anything skipped here is back-filled later."""
+        if (
+            "vv_h200" not in requested_hosts
+            or "ipavlov" in requested_hosts
+            or not IPAVLOV_USERNAME_RE.fullmatch(application.server_username)
+            or self.storage.has_access(application.telegram_user_id, "ipavlov")
+            or self.storage.has_registered_service(
+                application.telegram_user_id, "ipavlov"
+            )
+        ):
+            return
+        try:
+            if not self.provisioner.username_available(
+                "ipavlov", application.server_username
+            ):
+                self.storage.record_event(
+                    application.telegram_user_id,
+                    "ipavlov_bundle_skipped",
+                    "ipavlov",
+                    "username taken on ipavlov",
+                )
+                return
+            access = self.provisioner.provision(
+                "ipavlov",
+                application.server_username,
+                full_name=application.full_name,
+                owner_id=application.telegram_user_id,
+            )
+            self.storage.save_access(application.telegram_user_id, access)
+            self.storage.record_event(
+                application.telegram_user_id,
+                "account_created" if access.created else "account_exists",
+                "ipavlov",
+            )
+            result.append(access)
+        except Exception as error:
+            self.storage.record_event(
+                application.telegram_user_id,
+                "ipavlov_bundle_deferred",
+                "ipavlov",
+                type(error).__name__,
+            )
 
     def credentials_for(self, telegram_user_id: int) -> list[ProvisionedAccess]:
         return self.storage.credentials_for(telegram_user_id)
