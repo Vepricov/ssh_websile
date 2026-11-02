@@ -26,13 +26,14 @@
                             <input id="full-name" name="full_name" type="text" autocomplete="name" maxlength="120" placeholder="Иван Иванов" required>
                             <small>Как вас знают в лаборатории</small>
                         </label>
-
-                        <label class="field field-wide">
-                            <span>Рекомендатель</span>
-                            <input id="recommender" name="recommender" type="text" maxlength="120" placeholder="Имя Фамилия или @username">
-                            <small>Кто пригласил вас на серверы лаборатории</small>
-                        </label>
                     </div>
+
+                    <label class="field field-wide">
+                        <span>Рекомендатель</span>
+                        <small>Кто пригласил вас и одобрит доступ. Можно выбрать нескольких — заявка уйдёт им и владельцу.</small>
+                    </label>
+                    <div class="server-grid" id="recommender-grid" role="group" aria-label="Рекомендатели"></div>
+                    <p class="section-hint" id="recommender-empty" hidden>Список рекомендателей сейчас недоступен — можно оставить пустым: заявку получит владелец.</p>
                 </div>
             </section>
 
@@ -46,6 +47,6 @@
             </div>
         </form>
     </main>
-    <script src="access-form.js?v=free-recommender-20260929"></script>
+    <script src="access-form.js?v=recommender-picker-20261102"></script>
 </body>
 </html>

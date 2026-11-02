@@ -35,11 +35,12 @@
                             <input id="username" autocapitalize="none" autocomplete="username" spellcheck="false" maxlength="32" pattern="[a-z_][a-z0-9_\-]{0,31}" placeholder="ivan_ivanov" required>
                             <small>Строчные латинские буквы, цифры, «_» и «-». Заглавные переводятся в строчные автоматически. Можно взять тот же ник, что на серверах.</small>
                         </label>
-                        <label class="field field-wide"><span>Рекомендатель</span>
-                            <input id="recommender" maxlength="120" placeholder="Имя или @username">
-                            <small>Кто пригласил вас в лабораторию</small>
-                        </label>
                     </div>
+                    <label class="field field-wide"><span>Рекомендатель</span>
+                        <small>Кто пригласил вас и одобрит доступ. Можно выбрать нескольких — заявка уйдёт им и владельцу.</small>
+                    </label>
+                    <div class="server-grid" id="recommender-grid" role="group" aria-label="Рекомендатели"></div>
+                    <p class="section-hint" id="recommender-empty" hidden>Список рекомендателей сейчас недоступен — можно оставить пустым: заявку получит владелец.</p>
                 </div>
             </section>
             <section class="form-section" aria-labelledby="role-title">
@@ -84,6 +85,6 @@
             </button></div>
         </form>
     </main>
-    <script src="mcp-form.js?v=roles-20261018"></script>
+    <script src="mcp-form.js?v=recommender-picker-20261102"></script>
 </body>
 </html>

@@ -2,9 +2,6 @@ from server_access_bot.app import (
     BOT_DEFAULTS,
     MAIN_MENU,
     admin_approval_keyboard,
-    also_sent_line,
-    approver_label,
-    approver_label_map,
     ascend_admin_keyboard,
     application_from_request,
     available_servers_keyboard,
@@ -27,6 +24,12 @@ from server_access_bot.app import (
     server_form_url,
     server_request_menu,
     split_external_application,
+)
+from server_access_bot.approvers import (
+    also_sent_line,
+    approver_candidates,
+    approver_label,
+    approver_label_map,
 )
 from server_access_bot.domain import (
     Profile,
@@ -593,3 +596,26 @@ def test_approver_label_map_covers_every_approver() -> None:
 
     labels = approver_label_map(FakeStorage(), frozenset({10, 20}))
     assert labels == {10: "id 10", 20: "id 20"}
+
+
+def test_approver_candidates_are_sorted_by_label() -> None:
+    class FakeStorage:
+        def __init__(self, profiles):
+            self._profiles = profiles
+
+        def profile_for(self, telegram_user_id):
+            return self._profiles.get(telegram_user_id)
+
+    storage = FakeStorage(
+        {
+            1: Profile(1, "shkodnik1917", "Андрей Веприков", "—"),
+            2: Profile(2, "hurrricane8", "Глеб Молодцов", "—"),
+            3: Profile(3, None, "", "—"),
+        }
+    )
+    result = approver_candidates(storage, frozenset({1, 2, 3}))
+    assert result == [
+        {"id": 3, "label": "id 3"},
+        {"id": 1, "label": "Андрей Веприков (@shkodnik1917)"},
+        {"id": 2, "label": "Глеб Молодцов (@hurrricane8)"},
+    ]

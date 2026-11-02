@@ -14,12 +14,34 @@ FIELD_LIMITS = {
 }
 
 
+MAX_RECOMMENDERS = 16
+
+
 class WebAppPayloadError(ValueError):
     pass
 
 
 def _invalid_payload() -> WebAppPayloadError:
     return WebAppPayloadError("Проверьте поля формы и отправьте её повторно.")
+
+
+def parse_recommender_ids(data: dict) -> tuple[int, ...]:
+    """Chosen approver ids from the form; order-preserving, deduplicated.
+
+    Membership in the real approver set is validated later, where that set is
+    known — here we only guard the shape so a bad payload cannot crash parsing.
+    """
+    raw = data.get("recommender_ids", [])
+    if raw in (None, ""):
+        return ()
+    if not isinstance(raw, list) or any(
+        isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        for value in raw
+    ):
+        raise _invalid_payload()
+    if len(raw) > MAX_RECOMMENDERS:
+        raise _invalid_payload()
+    return tuple(dict.fromkeys(raw))
 
 
 def parse_web_app_data(user: User, raw_data: str) -> Profile | ServerRequest:
@@ -54,6 +76,7 @@ def parse_web_app_data(user: User, raw_data: str) -> Profile | ServerRequest:
             telegram_username=user.username,
             full_name=data["full_name"].strip(),
             recommender=data["recommender"].strip(),
+            recommender_ids=parse_recommender_ids(data),
         )
     if kind != "server_request":
         raise _invalid_payload()

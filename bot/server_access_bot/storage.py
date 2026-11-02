@@ -29,6 +29,19 @@ class PendingRequestExistsError(ValueError):
     pass
 
 
+def _decode_recommender_ids(row: sqlite3.Row) -> tuple[int, ...]:
+    """Chosen approvers stored as a JSON array; tolerant of an absent/garbled value."""
+    try:
+        raw = row["recommender_ids"]
+    except (IndexError, KeyError):
+        return ()
+    try:
+        parsed = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return ()
+    return tuple(int(value) for value in parsed if isinstance(value, int))
+
+
 class Storage:
     def __init__(self, path: Path, encryption_key: bytes) -> None:
         if len(encryption_key) not in (16, 24, 32):
@@ -196,6 +209,15 @@ class Storage:
             if "processing_started_at" not in pending_columns:
                 db.execute(
                     "ALTER TABLE pending_requests ADD COLUMN processing_started_at INTEGER"
+                )
+            profile_columns = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(profiles)")
+            }
+            if "recommender_ids" not in profile_columns:
+                db.execute(
+                    "ALTER TABLE profiles ADD COLUMN "
+                    "recommender_ids TEXT NOT NULL DEFAULT '[]'"
                 )
             db.execute(
                 """
@@ -779,12 +801,14 @@ class Storage:
             db.execute(
                 """
                 INSERT INTO profiles (
-                    telegram_user_id, telegram_username, full_name, recommender
-                ) VALUES (?, ?, ?, ?)
+                    telegram_user_id, telegram_username, full_name,
+                    recommender, recommender_ids
+                ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(telegram_user_id) DO UPDATE SET
                     telegram_username=excluded.telegram_username,
                     full_name=excluded.full_name,
                     recommender=excluded.recommender,
+                    recommender_ids=excluded.recommender_ids,
                     updated_at=CURRENT_TIMESTAMP
                 """,
                 (
@@ -792,6 +816,7 @@ class Storage:
                     profile.telegram_username,
                     profile.full_name,
                     profile.recommender,
+                    json.dumps(list(profile.recommender_ids)),
                 ),
             )
 
@@ -808,6 +833,7 @@ class Storage:
             telegram_username=row["telegram_username"],
             full_name=str(row["full_name"]),
             recommender=str(row["recommender"]),
+            recommender_ids=_decode_recommender_ids(row),
         )
 
     def save_registry_match(

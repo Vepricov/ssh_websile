@@ -10,7 +10,8 @@
     const submitLabel = submitButton.querySelector("span");
     const formError = document.getElementById("form-error");
     const fullName = document.getElementById("full-name");
-    const recommender = document.getElementById("recommender");
+    const recommenderGrid = document.getElementById("recommender-grid");
+    const recommenderEmpty = document.getElementById("recommender-empty");
     const storageKey = "brainlab_server_access_profile_v1";
     let submitted = false;
     let touched = false;
@@ -18,6 +19,89 @@
 
     telegram?.ready();
     telegram?.expand();
+
+    const candidates = parseCandidates();
+    renderRecommenders(candidates);
+
+    function parseCandidates() {
+        const raw = new URLSearchParams(window.location.search).get("rec");
+        let parsed = null;
+        try {
+            parsed = JSON.parse(raw || "[]");
+        } catch {
+            return [];
+        }
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed.filter(
+            (item) =>
+                item
+                && Number.isInteger(item.id)
+                && item.id > 0
+                && typeof item.label === "string",
+        );
+    }
+
+    function initials(label) {
+        const name = label.replace(/\(@[^)]*\)/g, "").trim() || label;
+        const words = name.replace(/^@/, "").split(/\s+/).filter(Boolean);
+        return words.slice(0, 2).map((word) => word[0].toUpperCase()).join("");
+    }
+
+    function renderRecommenders(items) {
+        if (!items.length) {
+            recommenderGrid.hidden = true;
+            recommenderEmpty.hidden = false;
+            return;
+        }
+        for (const item of items) {
+            const card = document.createElement("label");
+            card.className = "server-card";
+
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.name = "recommender";
+            input.value = String(item.id);
+
+            const check = document.createElement("span");
+            check.className = "server-check";
+            check.setAttribute("aria-hidden", "true");
+            check.textContent = "✓";
+
+            const kicker = document.createElement("span");
+            kicker.className = "server-kicker";
+            kicker.textContent = initials(item.label) || "·";
+
+            const name = document.createElement("b");
+            name.textContent = item.label;
+
+            card.append(input, check, kicker, name);
+            recommenderGrid.append(card);
+        }
+    }
+
+    function selectedRecommenders() {
+        const checked = Array.from(
+            recommenderGrid.querySelectorAll('input[name="recommender"]:checked'),
+        );
+        const ids = checked.map((input) => Number(input.value));
+        const labels = checked.map(
+            (input) =>
+                candidates.find((item) => item.id === Number(input.value))?.label
+                || "",
+        );
+        return { ids, labels };
+    }
+
+    function applySelectedIds(ids) {
+        const wanted = new Set((ids || []).map(Number));
+        for (const input of recommenderGrid.querySelectorAll(
+            'input[name="recommender"]',
+        )) {
+            input.checked = wanted.has(Number(input.value));
+        }
+    }
 
     function loadDraft() {
         const finish = (rawDraft) => {
@@ -33,8 +117,8 @@
             if (draft && typeof draft.full_name === "string") {
                 fullName.value = draft.full_name;
             }
-            if (draft && typeof draft.recommender === "string") {
-                recommender.value = draft.recommender;
+            if (draft && Array.isArray(draft.recommender_ids)) {
+                applySelectedIds(draft.recommender_ids);
             }
             if (!fullName.value) {
                 const user = telegram?.initDataUnsafe?.user;
@@ -56,11 +140,13 @@
         if (!cloudStorage?.setItem) {
             return;
         }
+        const selection = selectedRecommenders();
         cloudStorage.setItem(
             storageKey,
             JSON.stringify({
                 full_name: fullName.value,
-                recommender: recommender.value,
+                recommender: selection.labels.join(", "),
+                recommender_ids: selection.ids,
             }),
         );
     }
@@ -92,16 +178,23 @@
         queueDraftSave();
     });
 
+    form.addEventListener("change", () => {
+        touched = true;
+        queueDraftSave();
+    });
+
     form.addEventListener("submit", (event) => {
         event.preventDefault();
         if (submitted || !validateForm()) {
             return;
         }
+        const selection = selectedRecommenders();
         const data = JSON.stringify({
             version: 1,
             kind: "profile",
             full_name: fullName.value.trim(),
-            recommender: recommender.value.trim(),
+            recommender: selection.labels.join(", "),
+            recommender_ids: selection.ids,
         });
         if (!telegram?.sendData) {
             formError.textContent = "Откройте эту форму кнопкой внутри Telegram-бота.";
