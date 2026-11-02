@@ -553,6 +553,34 @@ def application_summary(data: dict[str, object]) -> str:
     )
 
 
+def approver_label(storage: Storage, telegram_user_id: int) -> str:
+    """Имя и @ник получателя заявки, если бот их знает; иначе — telegram id."""
+    profile = storage.profile_for(telegram_user_id)
+    name = (profile.full_name or "").strip() if profile else ""
+    username = (profile.telegram_username or "").strip().lstrip("@") if profile else ""
+    if name and username:
+        return f"{name} (@{username})"
+    if name:
+        return name
+    if username:
+        return f"@{username}"
+    return f"id {telegram_user_id}"
+
+
+def approver_label_map(
+    storage: Storage, approvers: frozenset[int]
+) -> dict[int, str]:
+    return {approver_id: approver_label(storage, approver_id) for approver_id in approvers}
+
+
+def also_sent_line(labels: dict[int, str], *, exclude: int) -> str:
+    """Строка «кому ещё ушла заявка» для одного получателя (пустая, если больше никому)."""
+    others = sorted(label for approver_id, label in labels.items() if approver_id != exclude)
+    if not others:
+        return ""
+    return "\n\n<i>Также отправлено на одобрение:</i> " + html.escape(", ".join(others))
+
+
 async def deliver_ascend_reminders(
     bot: object,
     storage: Storage,
@@ -1269,7 +1297,11 @@ def build_router(
                 reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
-        for admin_id in server_approvers():
+        approvers = server_approvers()
+        approver_labels = await asyncio.to_thread(
+            approver_label_map, service.storage, approvers
+        )
+        for admin_id in approvers:
             try:
                 await bot.send_message(
                     admin_id,
@@ -1286,7 +1318,8 @@ def build_router(
                             )
                         )
                     )
-                    + application_summary(application_data(application)),
+                    + application_summary(application_data(application))
+                    + also_sent_line(approver_labels, exclude=admin_id),
                     reply_markup=(
                         ascend_admin_keyboard(
                             request_id,
