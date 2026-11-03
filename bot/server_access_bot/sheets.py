@@ -67,6 +67,7 @@ REGISTRY_SERVER_LABELS = {
     "yandex": "Яндекс-сервер",
     "mlsub": "mlsub / Cloud.ru",
     "alibaba_ascend": "Alibaba",
+    "ipavlov": "ipavlov (gpu12)",
 }
 REGISTRY_SERVERS = (
     ("shkodnik_opt", ("Старый сервер (MIPT)", "Старый (mipt)")),
@@ -258,7 +259,7 @@ def bot_user_values(
         access_term,
         subject.recommender,
         activity,
-        "; ".join(REGISTRY_SERVER_LABELS[host] for host in registry_servers),
+        "; ".join(REGISTRY_SERVER_LABELS.get(host, host) for host in registry_servers),
         status,
         timestamp,
     ]
@@ -280,7 +281,7 @@ def bot_request_values(
         telegram_username,
         application.full_name,
         application.server_username,
-        "; ".join(REGISTRY_SERVER_LABELS[host] for host in application.servers),
+        "; ".join(REGISTRY_SERVER_LABELS.get(host, host) for host in application.servers),
         status,
         application.recommender,
         application.activity,
