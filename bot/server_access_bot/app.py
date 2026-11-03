@@ -165,7 +165,6 @@ class Form(StatesGroup):
     confirm = State()
     registry_confirm = State()
     edit_full_name = State()
-    edit_recommender = State()
 
 
 
@@ -1601,12 +1600,12 @@ def build_router(
             await callback.message.answer("Пришлите новое имя и фамилию.")
 
     @router.callback_query(F.data == "profile:edit:recommender")
-    async def edit_recommender(callback: CallbackQuery, state: FSMContext) -> None:
-        await state.set_state(Form.edit_recommender)
+    async def edit_recommender(callback: CallbackQuery) -> None:
         await callback.answer()
         if callback.message:
             await callback.message.answer(
-                "Пришлите имя или Telegram-ник нового рекомендателя."
+                "Откройте форму профиля и выберите рекомендателей из списка.",
+                reply_markup=await profile_menu(),
             )
 
     @router.callback_query(Form.confirm, F.data.startswith("form:submit:"))
@@ -2275,35 +2274,7 @@ def build_router(
             message.from_user.username,
             message.text.strip(),
             profile.recommender,
-        )
-        try:
-            validate_profile(updated)
-        except ValidationError as error:
-            await message.answer(str(error))
-            return
-        await asyncio.to_thread(service.storage.save_profile, updated)
-        await state.clear()
-        await answer_profile(message, updated)
-
-    @router.message(Form.edit_recommender, F.text)
-    async def save_recommender(message: Message, state: FSMContext) -> None:
-        if message.from_user is None or message.chat.type != ChatType.PRIVATE:
-            return
-        profile = await asyncio.to_thread(
-            service.storage.profile_for, message.from_user.id
-        )
-        if profile is None:
-            await state.clear()
-            await message.answer(
-                "Профиль не найден. Заполните его заново.",
-                reply_markup=await profile_menu(),
-            )
-            return
-        updated = Profile(
-            profile.telegram_user_id,
-            message.from_user.username,
-            profile.full_name,
-            message.text.strip(),
+            profile.recommender_ids,
         )
         try:
             validate_profile(updated)
