@@ -78,6 +78,11 @@ from .sheets import (
     normalize_telegram_username,
 )
 from .storage import PendingRequestExistsError, RegistryAlreadyClaimedError, Storage
+from .approvers import (
+    also_sent_line,
+    approver_candidates,
+    approver_label_map,
+)
 from .webapp import parse_web_app_data
 
 LOGGER = logging.getLogger(__name__)
@@ -215,13 +220,19 @@ def main_menu(
 MAIN_MENU = main_menu()
 
 
-def profile_form_menu() -> ReplyKeyboardMarkup:
+def profile_form_url(recommender_choices: str = "") -> str:
+    if not recommender_choices:
+        return FORM_URL
+    return f"{FORM_URL}?{urlencode({'rec': recommender_choices})}"
+
+
+def profile_form_menu(recommender_choices: str = "") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(
                     text="Открыть форму профиля",
-                    web_app=WebAppInfo(url=FORM_URL),
+                    web_app=WebAppInfo(url=profile_form_url(recommender_choices)),
                 )
             ],
             [KeyboardButton(text="Главное меню")],
@@ -454,6 +465,9 @@ def application_from_data(user: User, data: dict[str, object]) -> Application:
         recommender=str(data["recommender"]),
         activity=str(data.get("activity", "")),
         servers=tuple(str(host) for host in data["servers"]),
+        recommender_ids=tuple(
+            int(value) for value in data.get("recommender_ids", ())
+        ),
     )
 
 
@@ -469,6 +483,7 @@ def application_from_request(profile: Profile, request: ServerRequest) -> Applic
         recommender=profile.recommender,
         activity=request.activity,
         servers=request.servers,
+        recommender_ids=profile.recommender_ids,
     )
 
 
@@ -504,6 +519,7 @@ def application_data(application: Application) -> dict[str, object]:
         "recommender": application.recommender,
         "activity": application.activity,
         "servers": list(application.servers),
+        "recommender_ids": list(application.recommender_ids),
     }
 
 
@@ -968,8 +984,44 @@ def build_router(
     router = Router()
 
     def server_approvers() -> frozenset[int]:
-        # Любую серверную заявку одобряет владелец или лид лаборатории.
+        # Одобрять вправе владелец и Maintainer'ы корня GitLab (они же — кандидаты
+        # в рекомендатели формы). Кому уходит конкретная заявка — считается отдельно
+        # из выбранных рекомендателей, см. recipients_for.
         return admin_user_ids | лиды_из_кеша()
+
+    def recipients_for(recommender_ids: Sequence[int]) -> list[int]:
+        # Заявка уходит владельцу (admin) и выбранным рекомендателям. Порядок
+        # стабильный: сперва админы, потом остальные рекомендатели.
+        chosen = [rid for rid in recommender_ids if rid not in admin_user_ids]
+        return sorted(admin_user_ids) + list(dict.fromkeys(chosen))
+
+    async def recommender_choices() -> str:
+        candidates = await asyncio.to_thread(
+            approver_candidates, service.storage, server_approvers()
+        )
+        return json.dumps(candidates, ensure_ascii=False) if candidates else ""
+
+    async def profile_menu() -> ReplyKeyboardMarkup:
+        return profile_form_menu(await recommender_choices())
+
+    async def normalize_recommenders(profile: Profile) -> Profile:
+        # Доверяем форме только id, и только тем, кто сейчас реально может одобрять;
+        # человекочитаемую подпись пересобираем из имён, а не из присланного текста.
+        approvers = server_approvers()
+        valid = tuple(rid for rid in profile.recommender_ids if rid in approvers)
+        labels = await asyncio.to_thread(
+            approver_label_map, service.storage, frozenset(valid)
+        )
+        recommender = (
+            ", ".join(labels[rid] for rid in valid) if valid else profile.recommender
+        )
+        return Profile(
+            telegram_user_id=profile.telegram_user_id,
+            telegram_username=profile.telegram_username,
+            full_name=profile.full_name,
+            recommender=recommender,
+            recommender_ids=valid,
+        )
 
     async def record_decision(
         application: Application,
@@ -1200,7 +1252,7 @@ def build_router(
             "Вы пройдёте те же формы, что новый пользователь. Бот не изменит "
             "ваш профиль, таблицу или Unix-аккаунты, а пароль будет явно "
             "помечен как демонстрационный.",
-            reply_markup=profile_form_menu(),
+            reply_markup=await profile_menu(),
         )
 
     async def route_application(
@@ -1269,7 +1321,11 @@ def build_router(
                 reply_markup=await personalized_main_menu(message.from_user.id),
             )
             return
-        for admin_id in server_approvers():
+        recipients = recipients_for(application.recommender_ids)
+        approver_labels = await asyncio.to_thread(
+            approver_label_map, service.storage, frozenset(recipients)
+        )
+        for admin_id in recipients:
             try:
                 await bot.send_message(
                     admin_id,
@@ -1286,7 +1342,8 @@ def build_router(
                             )
                         )
                     )
-                    + application_summary(application_data(application)),
+                    + application_summary(application_data(application))
+                    + also_sent_line(approver_labels, exclude=admin_id),
                     reply_markup=(
                         ascend_admin_keyboard(
                             request_id,
@@ -1351,6 +1408,7 @@ def build_router(
                         reply_markup=demo_server_menu(),
                     )
                     return
+                submission = await normalize_recommenders(submission)
                 await asyncio.to_thread(service.storage.save_profile, submission)
                 await state.clear()
                 await message.answer(
@@ -1380,6 +1438,7 @@ def build_router(
                 mcp_data = parse_mcp_application(message.from_user, json.dumps({
                     "version": 1, "kind": "mcp_request", "full_name": profile.full_name,
                     "username": submission.server_username, "recommender": profile.recommender,
+                    "recommender_ids": list(profile.recommender_ids),
                     "requested_role": submission.mcp_role, "activity": submission.activity,
                     "access_term": "бессрочно",
                 }))
@@ -1505,7 +1564,7 @@ def build_router(
                 "Привязка отменена. Заполните профиль вручную."
             )
             await callback.message.answer(
-                "Откройте форму профиля.", reply_markup=profile_form_menu()
+                "Откройте форму профиля.", reply_markup=await profile_menu()
             )
 
     @router.message(Command("cancel"))
@@ -1947,7 +2006,7 @@ def build_router(
             return
         if profile is None:
             await message.answer(
-                "Профиль пока не заполнен.", reply_markup=profile_form_menu()
+                "Профиль пока не заполнен.", reply_markup=await profile_menu()
             )
             return
         await answer_profile(message, profile)
@@ -2205,7 +2264,7 @@ def build_router(
             await state.clear()
             await message.answer(
                 "Профиль не найден. Заполните его заново.",
-                reply_markup=profile_form_menu(),
+                reply_markup=await profile_menu(),
             )
             return
         updated = Profile(
@@ -2234,7 +2293,7 @@ def build_router(
             await state.clear()
             await message.answer(
                 "Профиль не найден. Заполните его заново.",
-                reply_markup=profile_form_menu(),
+                reply_markup=await profile_menu(),
             )
             return
         updated = Profile(

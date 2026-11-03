@@ -7,6 +7,7 @@ class Profile:
     telegram_username: str | None
     full_name: str
     recommender: str
+    recommender_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class Application:
     recommender: str
     activity: str
     servers: tuple[str, ...]
+    recommender_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

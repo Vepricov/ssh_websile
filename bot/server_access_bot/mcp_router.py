@@ -1,6 +1,8 @@
 import asyncio
 import html
+import json
 import logging
+from urllib.parse import urlencode
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
@@ -9,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup, WebAppInfo
 
+from .approvers import approver_candidates
 from .gitlab_access import запомнить_логин
 from .mcp_access import McpAccessService
 from .mcp_profile import FORM_URL, PREZHNIE, ROLES, is_application, parse_application
@@ -31,9 +34,13 @@ FORM_HINT = (
 )
 
 
-def form_menu() -> ReplyKeyboardMarkup:
+def form_menu(recommender_choices: str = "") -> ReplyKeyboardMarkup:
+    url = FORM_URL
+    if recommender_choices:
+        # FORM_URL already carries ?v=…, so the choices go on with &.
+        url = f"{FORM_URL}&{urlencode({'rec': recommender_choices})}"
     return ReplyKeyboardMarkup(keyboard=[[
-        KeyboardButton(text="Заполнить заявку", web_app=WebAppInfo(url=FORM_URL))],
+        KeyboardButton(text="Заполнить заявку", web_app=WebAppInfo(url=url))],
         [KeyboardButton(text="Главное меню")]], resize_keyboard=True)
 
 
@@ -186,8 +193,13 @@ async def submit_application(message: Message, bot: Bot, service: McpAccessServi
             "Ваша заявка MCP уже отправлена. Дождитесь решения Андрея."
         )
         return
+    approvers = service.approvers()
+    chosen = [rid for rid in profile.recommender_ids if rid in approvers]
+    recipients = sorted(service.admins) + [
+        rid for rid in dict.fromkeys(chosen) if rid not in service.admins
+    ]
     notified = False
-    for admin_id in service.approvers():
+    for admin_id in recipients:
         try:
             await bot.send_message(admin_id, request_text(row), reply_markup=actions(row["request_id"], row["requested_role"]))
             notified = True
@@ -204,6 +216,10 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
     router = Router(name="mcp_access")
     router.message.filter(F.chat.type == ChatType.PRIVATE)
     router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
+
+    def recommender_choices() -> str:
+        candidates = approver_candidates(service.storage, service.approvers())
+        return json.dumps(candidates, ensure_ascii=False) if candidates else ""
 
     async def deliver(bot: Bot, access: dict) -> None:
         # Связь логина с телеграмом нужна заявкам на доступ: ключ группы чужую почту не
@@ -292,18 +308,18 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             f"{FORM_HINT}\n\n"
             "В форме укажите имя, ник и роль. Ник станет логином на сайте, поэтому "
             "латиницей. SSH-аккаунт к серверам для базы не нужен: это разные доступы.",
-            reply_markup=form_menu(),
+            reply_markup=form_menu(recommender_choices()),
         )
 
     @router.callback_query(F.data == "mcp:request")
     async def old_request(callback: CallbackQuery) -> None:
         await callback.answer()
-        await callback.message.answer(FORM_HINT, reply_markup=form_menu())
+        await callback.message.answer(FORM_HINT, reply_markup=form_menu(recommender_choices()))
 
     @router.message(McpForm.waiting_for_form, F.text.contains("\n"), ~F.text.startswith("/"))
     async def typed_application(message: Message) -> None:
         await message.answer(
-            f"Заявка ещё не отправлена.\n\n{FORM_HINT}", reply_markup=form_menu(),
+            f"Заявка ещё не отправлена.\n\n{FORM_HINT}", reply_markup=form_menu(recommender_choices()),
         )
 
     @router.message(F.web_app_data.data.func(is_application))
@@ -315,7 +331,7 @@ def build_mcp_router(service: McpAccessService, group_url: str = "") -> Router:
             data = parse_application(message.from_user, message.web_app_data.data)
             profile = data["profile"]
         except ValueError as error:
-            await message.answer(html.escape(str(error)), reply_markup=form_menu())
+            await message.answer(html.escape(str(error)), reply_markup=form_menu(recommender_choices()))
             return
         await asyncio.to_thread(service.storage.save_profile, profile)
         await state.clear()

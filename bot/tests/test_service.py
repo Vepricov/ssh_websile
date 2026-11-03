@@ -741,3 +741,13 @@ def test_existing_unowned_username_is_rejected_before_any_creation(
 
     assert provisioner.calls == []
     assert storage.server_username_for(101) is None
+
+
+def test_profile_recommender_ids_roundtrip(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "bot.sqlite3", b"0" * 32)
+    storage.save_profile(Profile(101, "alice_tg", "Alice Smith", "Bob (@bob)", (7, 8)))
+    assert storage.profile_for(101) == Profile(
+        101, "alice_tg", "Alice Smith", "Bob (@bob)", (7, 8)
+    )
+    storage.save_profile(Profile(101, "alice_tg", "Alice Smith", "Bob (@bob)"))
+    assert storage.profile_for(101).recommender_ids == ()

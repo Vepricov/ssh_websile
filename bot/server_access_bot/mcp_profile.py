@@ -39,6 +39,9 @@ def is_application(raw: str) -> bool:
 
 
 def parse_application(user: User, raw: str) -> dict:
+    # Local import avoids a module-load cycle (webapp imports ROLES from here).
+    from .webapp import parse_recommender_ids
+
     if len(raw.encode("utf-8")) > 4096:
         raise ValueError("Сократите текст в форме.")
     data = json.loads(raw)
@@ -57,7 +60,8 @@ def parse_application(user: User, raw: str) -> dict:
     username = data["username"].strip()
     if not USERNAME_RE.fullmatch(username):
         raise ValueError("Ник: строчные латинские буквы, цифры, _ или -, до 32 символов.")
-    profile = Profile(user.id, user.username, data["full_name"].strip(), data["recommender"].strip())
+    profile = Profile(user.id, user.username, data["full_name"].strip(),
+                      data["recommender"].strip(), parse_recommender_ids(data))
     validate_profile(profile)
     return {"profile": profile, "username": username, "requested_role": role,
             "activity": data["activity"].strip()}

@@ -25,6 +25,12 @@ from server_access_bot.app import (
     server_request_menu,
     split_external_application,
 )
+from server_access_bot.approvers import (
+    also_sent_line,
+    approver_candidates,
+    approver_label,
+    approver_label_map,
+)
 from server_access_bot.domain import (
     Profile,
     ProvisionedAccess,
@@ -543,3 +549,73 @@ def test_demo_accesses_are_fake_and_do_not_auto_add_brain_lab() -> None:
     assert accesses[0].password is None
     assert accesses[1].password == "DEMO-PASSWORD"
     assert all(access.created is False for access in accesses)
+
+
+def test_also_sent_line_names_other_recipients_and_excludes_self() -> None:
+    labels = {
+        1: "Андрей Веприков (@shkodnik1917)",
+        2: "Глеб Молодцов (@hurrricane8)",
+        3: "Дмитрий Былинкин (@lxstsvund)",
+    }
+    line = also_sent_line(labels, exclude=1)
+    assert line.startswith("\n\n<i>Также отправлено на одобрение:</i> ")
+    assert "@shkodnik1917" not in line
+    assert "@hurrricane8" in line and "@lxstsvund" in line
+    assert line.index("Глеб") < line.index("Дмитрий")
+
+
+def test_also_sent_line_is_empty_for_the_only_recipient() -> None:
+    assert also_sent_line({7: "Solo (@solo)"}, exclude=7) == ""
+
+
+def test_approver_label_prefers_name_with_username_then_falls_back() -> None:
+    class FakeStorage:
+        def __init__(self, profiles):
+            self._profiles = profiles
+
+        def profile_for(self, telegram_user_id):
+            return self._profiles.get(telegram_user_id)
+
+    storage = FakeStorage(
+        {
+            1: Profile(1, "shkodnik1917", "Андрей Веприков", "—"),
+            2: Profile(2, None, "Безымянный Ник", "—"),
+            3: Profile(3, "just_user", "", "—"),
+        }
+    )
+    assert approver_label(storage, 1) == "Андрей Веприков (@shkodnik1917)"
+    assert approver_label(storage, 2) == "Безымянный Ник"
+    assert approver_label(storage, 3) == "@just_user"
+    assert approver_label(storage, 999) == "id 999"
+
+
+def test_approver_label_map_covers_every_approver() -> None:
+    class FakeStorage:
+        def profile_for(self, telegram_user_id):
+            return None
+
+    labels = approver_label_map(FakeStorage(), frozenset({10, 20}))
+    assert labels == {10: "id 10", 20: "id 20"}
+
+
+def test_approver_candidates_are_sorted_by_label() -> None:
+    class FakeStorage:
+        def __init__(self, profiles):
+            self._profiles = profiles
+
+        def profile_for(self, telegram_user_id):
+            return self._profiles.get(telegram_user_id)
+
+    storage = FakeStorage(
+        {
+            1: Profile(1, "shkodnik1917", "Андрей Веприков", "—"),
+            2: Profile(2, "hurrricane8", "Глеб Молодцов", "—"),
+            3: Profile(3, None, "", "—"),
+        }
+    )
+    result = approver_candidates(storage, frozenset({1, 2, 3}))
+    assert result == [
+        {"id": 3, "label": "id 3"},
+        {"id": 1, "label": "Андрей Веприков (@shkodnik1917)"},
+        {"id": 2, "label": "Глеб Молодцов (@hurrricane8)"},
+    ]

@@ -105,3 +105,34 @@ def test_web_app_field_limits_are_enforced(field: str, value: object) -> None:
 
     with pytest.raises(WebAppPayloadError, match="Проверьте"):
         parse_web_app_data(user, json.dumps(payload))
+
+
+def test_profile_payload_carries_selected_recommender_ids() -> None:
+    user = User(id=7, is_bot=False, first_name="Al", username="al")
+    submission = parse_web_app_data(user, json.dumps({
+        "version": 1, "kind": "profile", "full_name": "Al Smith",
+        "recommender": "Bob (@bob), Carol (@carol)",
+        "recommender_ids": [10, 20, 10],
+    }))
+    assert isinstance(submission, Profile)
+    assert submission.recommender_ids == (10, 20)
+
+
+def test_profile_payload_without_recommender_ids_defaults_empty() -> None:
+    user = User(id=7, is_bot=False, first_name="Al", username="al")
+    submission = parse_web_app_data(user, json.dumps({
+        "version": 1, "kind": "profile", "full_name": "Al Smith", "recommender": "",
+    }))
+    assert submission.recommender_ids == ()
+
+
+@pytest.mark.parametrize("bad", [
+    [0], [-1], ["10"], [1.5], [True], [[1]], list(range(1, 18)),
+])
+def test_profile_payload_rejects_bad_recommender_ids(bad) -> None:
+    user = User(id=7, is_bot=False, first_name="Al", username="al")
+    with pytest.raises(WebAppPayloadError):
+        parse_web_app_data(user, json.dumps({
+            "version": 1, "kind": "profile", "full_name": "Al Smith",
+            "recommender": "", "recommender_ids": bad,
+        }))
