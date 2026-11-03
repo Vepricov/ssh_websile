@@ -32,7 +32,8 @@ from aiogram.types import (
 from .config import Settings
 from .mcp_access import McpAccessService, McpBridge
 from .gitlab_access import (build_gitlab_router, run_gitlab_access_loop,
-                            лиды_из_кеша, включено as gitlab_включён)
+                            лиды_из_кеша, доп_рекомендатели,
+                            включено as gitlab_включён)
 from .gitlab_notify import run_gitlab_notify_loop
 from .work_access import WORKS_BUTTON, build_work_access_router
 from .mcp_router import MCP_MENU, build_mcp_router, submit_application as submit_mcp_application
@@ -984,10 +985,11 @@ def build_router(
     router = Router()
 
     def server_approvers() -> frozenset[int]:
-        # Одобрять вправе владелец и Maintainer'ы корня GitLab (они же — кандидаты
-        # в рекомендатели формы). Кому уходит конкретная заявка — считается отдельно
-        # из выбранных рекомендателей, см. recipients_for.
-        return admin_user_ids | лиды_из_кеша()
+        # Одобрять вправе владелец, Maintainer'ы корня GitLab и рекомендатели из
+        # отдельного списка (серверные люди без GitLab). Все они — кандидаты в
+        # рекомендатели формы. Кому уходит конкретная заявка — считается отдельно из
+        # выбранных рекомендателей, см. recipients_for.
+        return admin_user_ids | лиды_из_кеша() | доп_рекомендатели()
 
     def recipients_for(recommender_ids: Sequence[int]) -> list[int]:
         # Заявка уходит владельцу (admin) и выбранным рекомендателям. Порядок
@@ -2344,7 +2346,7 @@ async def run(settings: Settings) -> None:
     # Лиды лаборатории решают заявки наравне с владельцем. Список ведёт GitLab, бот
     # обновляет его проходом заявок и читает здесь из кеша.
     mcp_service = McpAccessService(storage, McpBridge(), settings.mcp_admin_user_ids,
-                                   лиды_из_кеша)
+                                   lambda: лиды_из_кеша() | доп_рекомендатели())
     dispatcher.include_router(build_mcp_router(
         mcp_service,
         settings.mcp_testing_group_url,
