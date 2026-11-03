@@ -476,3 +476,21 @@ def test_conflicting_registry_rows_are_not_silently_linked() -> None:
 
     with pytest.raises(RegistryAmbiguousError):
         registry_match_from_rows(rows, "alice_tg")
+
+
+def test_bot_request_values_handles_ipavlov_and_unknown_servers() -> None:
+    application = Application(
+        telegram_user_id=1,
+        telegram_username="al",
+        full_name="Al",
+        server_username="al",
+        access_term="бессрочно",
+        recommender="Bob",
+        activity="x",
+        servers=("ipavlov", "some_new_box"),
+    )
+    row = bot_request_values(
+        "req1", application, "pending", now=datetime(2026, 11, 3, tzinfo=UTC)
+    )
+    assert "ipavlov (gpu12)" in row[5]
+    assert "some_new_box" in row[5]
