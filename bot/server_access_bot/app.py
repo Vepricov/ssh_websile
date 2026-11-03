@@ -35,6 +35,7 @@ from .gitlab_access import (build_gitlab_router, run_gitlab_access_loop,
                             лиды_из_кеша, доп_рекомендатели,
                             включено as gitlab_включён)
 from .gitlab_notify import run_gitlab_notify_loop
+from .team import run_team_loop
 from .work_access import WORKS_BUTTON, build_work_access_router
 from .mcp_router import MCP_MENU, build_mcp_router, submit_application as submit_mcp_application
 from .mcp_profile import parse_application as parse_mcp_application
@@ -2380,6 +2381,7 @@ async def run(settings: Settings) -> None:
     )
     gitlab_access_task = None
     gitlab_notify_task = None
+    team_task = None
     if gitlab_включён():
         gitlab_access_task = asyncio.create_task(
             run_gitlab_access_loop(bot, settings.mcp_admin_user_ids)
@@ -2387,6 +2389,7 @@ async def run(settings: Settings) -> None:
         gitlab_notify_task = asyncio.create_task(
             run_gitlab_notify_loop(bot, settings.mcp_admin_user_ids)
         )
+        team_task = asyncio.create_task(run_team_loop(bot))
     # While Alibaba intake is closed, waiting requests stay pending without daily nagging.
     if settings.admin_user_ids and settings.alibaba_requests_open:
         ascend_reminder_task = asyncio.create_task(
