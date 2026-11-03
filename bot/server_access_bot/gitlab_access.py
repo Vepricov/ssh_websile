@@ -57,6 +57,12 @@ logger = logging.getLogger(__name__)
 #: фоновом проходе. Поэтому список лежит файлом: проход его обновляет, остальные читают.
 ЛИДЫ = Path(os.environ.get("LAB_GITLAB_LEADS",
                            "/var/lib/server-access-bot/gitlab-lidy.json"))
+#: Рекомендатели, которых нет в GitLab. Нужные для доступа к серверам люди — серверные, а не
+#: гитлабовские, и заводить им GitLab с правом мёржа во всех работах незачем. Поэтому их
+#: telegram id лежат отдельным списком: он читается ВМЕСТЕ с лидами как кандидаты в
+#: рекомендатели и как те, кто вправе одобрить. Файл правит владелец (или бот по его просьбе).
+ДОП_РЕКОМЕНДАТЕЛИ = Path(os.environ.get(
+    "LAB_EXTRA_RECOMMENDERS", "/var/lib/server-access-bot/extra-recommenders.json"))
 НАЗВАНИЕ_УРОВНЯ = {ЧИТАТЕЛЬ: "читатель", РАЗРАБОТЧИК: "участник", ВЕДУЩИЙ: "ведущий"}
 #: Кто имеет право решать — зависит от того, куда постучались, и это не наше правило, а
 #: устройство GitLab. Замер 17-10-2026 ключом ведущего: `groups/12/access_requests` отвечает
@@ -366,6 +372,16 @@ def лиды_из_кеша() -> frozenset[int]:
     """То же, но без похода в GitLab: кнопку нажимают не в проходе."""
     try:
         return frozenset(int(x) for x in json.loads(ЛИДЫ.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return frozenset()
+
+
+def доп_рекомендатели() -> frozenset[int]:
+    """Рекомендатели вне GitLab: telegram id из отдельного файла-списка."""
+    try:
+        return frozenset(
+            int(x) for x in json.loads(ДОП_РЕКОМЕНДАТЕЛИ.read_text(encoding="utf-8"))
+        )
     except (OSError, ValueError):
         return frozenset()
 
