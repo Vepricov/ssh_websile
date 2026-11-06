@@ -83,6 +83,7 @@ from .storage import PendingRequestExistsError, RegistryAlreadyClaimedError, Sto
 from .approvers import (
     also_sent_line,
     approver_candidates,
+    approver_label,
     approver_label_map,
 )
 from .webapp import parse_web_app_data
@@ -1329,7 +1330,7 @@ def build_router(
         )
         for admin_id in recipients:
             try:
-                await bot.send_message(
+                sent = await bot.send_message(
                     admin_id,
                     (
                         "<b>Заявка на Alibaba</b>\n\n"
@@ -1359,6 +1360,17 @@ def build_router(
                 )
             except Exception:
                 LOGGER.exception("Could not notify access admin %s", admin_id)
+            else:
+                # Запоминаем, куда ушла заявка, чтобы погасить кнопки у остальных
+                # получателей, как только кто-то один её обработает (см.
+                # notify_other_approvers). Для Alibaba свой поток одобрения.
+                if not is_ascend:
+                    await asyncio.to_thread(
+                        service.storage.save_request_message,
+                        request_id,
+                        admin_id,
+                        sent.message_id,
+                    )
         if is_ascend:
             await message.answer(
                 "Заявка на Alibaba отправлена администратору. После одобрения "
@@ -1696,6 +1708,31 @@ def build_router(
                 "Аккаунт Alibaba создан, доступ и инструкция отправлены пользователю."
             )
 
+    async def notify_other_approvers(
+        bot: Bot,
+        request_id: str,
+        actor_id: int,
+        actor_message_id: int | None,
+        note: str,
+    ) -> None:
+        # Заявку обрабатывает первый нажавший; у остальных получателей сообщение с
+        # кнопками гасим, чтобы оно не висело «живым» и было понятно, кто решил.
+        messages = await asyncio.to_thread(
+            service.storage.request_messages, request_id
+        )
+        for chat_id, message_id in messages:
+            if chat_id == actor_id and message_id == actor_message_id:
+                continue
+            try:
+                await bot.edit_message_text(
+                    note, chat_id=chat_id, message_id=message_id
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Could not update approver message %s/%s", chat_id, message_id
+                )
+        await asyncio.to_thread(service.storage.clear_request_messages, request_id)
+
     @router.callback_query(F.data.startswith("admin:approve:"))
     async def approve_new_user(callback: CallbackQuery, bot: Bot) -> None:
         if callback.from_user.id not in server_approvers():
@@ -1732,6 +1769,17 @@ def build_router(
             "request_approved" if success else "request_approval_failed",
             callback.from_user,
         )
+        actor_label = await asyncio.to_thread(
+            approver_label, service.storage, callback.from_user.id
+        )
+        await notify_other_approvers(
+            bot,
+            request_id,
+            callback.from_user.id,
+            callback.message.message_id if callback.message else None,
+            f"✅ Заявку уже одобрил: {html.escape(actor_label)}.\n"
+            "От вас ничего не требуется.",
+        )
         if callback.message:
             await callback.message.answer(
                 "Заявка одобрена, доступы отправлены пользователю."
@@ -1767,6 +1815,17 @@ def build_router(
         await callback.answer("Заявка отклонена")
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
+        actor_label = await asyncio.to_thread(
+            approver_label, service.storage, callback.from_user.id
+        )
+        await notify_other_approvers(
+            bot,
+            request_id,
+            callback.from_user.id,
+            callback.message.message_id if callback.message else None,
+            f"🚫 Заявку отклонил: {html.escape(actor_label)}.\n"
+            "От вас ничего не требуется.",
+        )
 
     @router.callback_query(F.data.startswith("gpu:stop:"))
     async def confirm_gpu_stop(callback: CallbackQuery) -> None:

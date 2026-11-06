@@ -121,6 +121,12 @@ class Storage:
                     reminder_reserved_at INTEGER,
                     processing_started_at INTEGER
                 );
+                CREATE TABLE IF NOT EXISTS request_messages (
+                    request_id TEXT NOT NULL,
+                    chat_id INTEGER NOT NULL,
+                    message_id INTEGER NOT NULL,
+                    PRIMARY KEY (request_id, chat_id)
+                );
                 CREATE TABLE IF NOT EXISTS gpu_idle_observations (
                     incident_key TEXT PRIMARY KEY,
                     host TEXT NOT NULL,
@@ -1401,6 +1407,38 @@ class Storage:
                 WHERE request_id = ?
                 """,
                 (status, request_id),
+            )
+
+    def save_request_message(
+        self, request_id: str, chat_id: int, message_id: int
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO request_messages (request_id, chat_id, message_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(request_id, chat_id) DO UPDATE SET
+                    message_id = excluded.message_id
+                """,
+                (request_id, chat_id, message_id),
+            )
+
+    def request_messages(self, request_id: str) -> list[tuple[int, int]]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT chat_id, message_id FROM request_messages
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            ).fetchall()
+        return [(int(row["chat_id"]), int(row["message_id"])) for row in rows]
+
+    def clear_request_messages(self, request_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "DELETE FROM request_messages WHERE request_id = ?",
+                (request_id,),
             )
 
     def release_pending_request_claim(self, request_id: str) -> None:
