@@ -249,7 +249,7 @@ def test_server_form_url_prefills_username_and_existing_accesses() -> None:
     )
 
     assert url == (
-        "https://vepricov.github.io/ssh_websile/server-form.html?"
+        "https://shkodnik1917.github.io/ssh_websile/server-form.html?"
         "server=vv_h200&username=alice&existing=shkodnik_opt%2Cbrain_lab%2Cyandex&v=2a100-approval-20261008"
     )
 
@@ -423,7 +423,7 @@ def test_main_menu_exposes_profile_catalog_info_and_access_actions() -> None:
     access_button = MAIN_MENU.keyboard[1][1]
     assert access_button.web_app is not None
     assert access_button.web_app.url == (
-        "https://vepricov.github.io/ssh_websile/server-form.html?v=2a100-approval-20261008"
+        "https://shkodnik1917.github.io/ssh_websile/server-form.html?v=2a100-approval-20261008"
     )
     # MCP is a separate flow: the button opens /mcp, not the server form.
     assert MAIN_MENU.keyboard[3][0].web_app is None

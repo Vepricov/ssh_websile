@@ -89,7 +89,7 @@ from .approvers import (
 from .webapp import parse_web_app_data
 
 LOGGER = logging.getLogger(__name__)
-RULES_URL = "https://vepricov.github.io/ssh_websile"
+RULES_URL = "https://shkodnik1917.github.io/ssh_websile"
 # Общая группа лаборатории в Telegram. Ссылка стоит в каждом сообщении о доступе:
 # до 20-10-2026 её получали только те, кому выдавали вход в базу, и то последней строкой.
 LAB_CHAT_URL = "https://t.me/+ePVIkcRT0g9lNjdi"

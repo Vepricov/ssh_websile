@@ -7,7 +7,7 @@ from aiogram.types import User
 from .domain import Profile
 from .service import USERNAME_RE, validate_profile
 
-FORM_URL = "https://vepricov.github.io/ssh_websile/mcp-form.html?v=access-cleanup-20261001"
+FORM_URL = "https://shkodnik1917.github.io/ssh_websile/mcp-form.html?v=access-cleanup-20261001"
 #: Лестница ролей в лаборатории — это лестница ролей GitLab, и названия в скобках те же,
 #: что человек увидит на странице состава. Четыре ступени приняты владельцем 17-10-2026.
 #: Прежние имена (`member`, `manager`) понимаются, чтобы старые заявки не стали неизвестной
